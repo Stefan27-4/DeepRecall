@@ -215,10 +215,10 @@ Your primary model orchestrates. A cheaper model handles file reading:
 
 | Your Primary Model | Sub-agent Model |
 |---|---|
-| Claude Opus 4 | Claude Sonnet 4 |
-| Claude Sonnet 4 | Claude Haiku 3.5 |
+| Claude Opus 4.6 | Claude Sonnet 4.6 |
+| Claude Sonnet 4.5 | Claude Haiku 4.5 |
 | GPT-4o / GPT-4.1 | GPT-4o-mini / GPT-4.1-mini |
-| Gemini 2.5 Pro | Gemini 2.5 Flash |
+| Gemini 3.1 Pro | Gemini 3 Flash |
 | Llama 3.3 70B | Llama 3.3 8B |
 | DeepSeek R1 | DeepSeek V3 |
 
