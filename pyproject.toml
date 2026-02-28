@@ -10,9 +10,10 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
-    "fast-rlm>=0.1.0",
     "pyyaml>=6.0",
 ]
+# Note: also requires fast-rlm (Deno CLI, not a pip package) + Deno 2+
+# See README.md for installation instructions
 
 [project.urls]
 Homepage = "https://github.com/Stefan27-4/DeepRecall"
