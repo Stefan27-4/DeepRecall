@@ -15,8 +15,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Stefan27-4/deep-recall"
-Documentation = "https://github.com/Stefan27-4/deep-recall#readme"
+Homepage = "https://github.com/Stefan27-4/DeepRecall"
+Documentation = "https://github.com/Stefan27-4/DeepRecall#readme"
 
 [tool.setuptools.packages.find]
 where = ["."]
