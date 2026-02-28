@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "deep-recall"
+version = "0.1.0"
+description = "Recursive memory for persistent AI agents using RLM"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "fast-rlm>=0.1.0",
+    "pyyaml>=6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/deep-recall/deep-recall"
+Documentation = "https://github.com/deep-recall/deep-recall#readme"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["skill*"]
