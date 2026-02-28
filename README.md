@@ -118,24 +118,55 @@ Tested against a 800-page textbook (Lynch, Strategic Management 7th Ed) — 59 c
 | Privacy | Data leaves your machine | 100% local |
 | Git-trackable | No | Yes — it's all markdown |
 
+## Security & Privacy
+
+**DeepRecall reads local files and sends them to your LLM provider. Understand what that means before running it.**
+
+### What It Accesses
+
+| What | Why | Where It Goes |
+|------|-----|---------------|
+| `~/.openclaw/openclaw.json` | Find your LLM provider + model config | Stays local |
+| `~/.openclaw/credentials/` | Read API keys (e.g. GitHub Copilot token) | Passed to fast-rlm process as env var |
+| Workspace files (scope-dependent) | Build memory context for the query | Sent to your configured LLM provider via fast-rlm |
+
+### Data Flow
+
+```
+Your workspace files → DeepRecall assembles context → fast-rlm (local Deno process) → Your LLM provider API
+```
+
+Your data goes to **the same provider you already use with OpenClaw** — no additional third parties. But be aware that broader scopes (`project`, `all`) send more of your workspace.
+
+### Recommendations
+
+- **Start with `identity` or `memory` scope** — only sends soul/mind files and daily logs
+- **Use `project`/`all` scope deliberately** — these read all text files in your workspace (up to 100KB each)
+- **For maximum privacy, use [Ollama](https://ollama.com)** or another local provider — your data never leaves your machine
+- **Audit [fast-rlm](https://github.com/avbiswas/fast-rlm) before running** — it's third-party code that executes locally and receives your API key
+- **Run in a VM/container** if you want extra isolation
+
 ## Installation
 
 ### Prerequisites
-- [OpenClaw](https://github.com/openclaw/openclaw) installed and configured
-- [fast-rlm](https://github.com/avbiswas/fast-rlm) cloned locally
-- [Deno](https://deno.com) 2+ installed (brew install deno - for Mac users)
-- Any LLM provider configured in OpenClaw (Anthropic, OpenAI, Google, OpenRouter, Ollama, etc.)
+- [OpenClaw](https://github.com/openclaw/openclaw) installed with a configured LLM provider
+- [Deno](https://deno.com) 2+ installed (`brew install deno` on Mac, or see [deno.com](https://deno.com))
+- [fast-rlm](https://github.com/avbiswas/fast-rlm) cloned locally — **review the code before running**
+- Python 3.10+ with PyYAML (`pip install pyyaml`)
 
 ### Install the Skill
 
 ```bash
 # Clone DeepRecall
-git clone https://github.com/<org>/deep-recall
-cp -r deep-recall/skill ~/.openclaw/workspace/skills/deep-recall
+git clone https://github.com/Stefan27-4/DeepRecall.git
+cp -r DeepRecall/skill ~/.openclaw/workspace/skills/deep-recall
 
-# Clone fast-rlm (the RLM engine)
+# Clone fast-rlm (the RLM engine) — audit the code before running
 git clone https://github.com/avbiswas/fast-rlm.git
 export FAST_RLM_DIR=/path/to/fast-rlm
+
+# Install Python dependency
+pip install pyyaml
 ```
 
 ## Usage
