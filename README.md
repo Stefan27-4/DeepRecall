@@ -302,7 +302,7 @@ If you use DeepRecall or the Anamnesis Architecture in academic work:
   title={DeepRecall: Recursive Memory for Persistent AI Agents},
   author={Chitez, Daniel-Stefan and Crick},
   year={2026},
-  url={https://github.com/<org>/deep-recall},
+  url={https://github.com/Stefan27-4/deep-recall},
   note={Implements the Anamnesis Architecture for AI agent memory persistence}
 }
 ```
