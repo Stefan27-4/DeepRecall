@@ -24,7 +24,7 @@ DeepRecall separates the agent into **Soul** and **Mind**:
 
 ```
 ┌─────────────────────────────────────────────┐
-│              SOUL (Small, Fixed)             │
+│              SOUL (Small, Fixed)            │
 │  Identity, values, personality, core rules  │
 │  Always in context. Never grows.            │
 │  ~2-5K tokens                               │
