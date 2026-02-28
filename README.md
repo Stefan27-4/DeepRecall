@@ -90,9 +90,9 @@ Tested against a 800-page textbook (Lynch, Strategic Management 7th Ed) — 59 c
 | Test | Query | Provider | Time | Cost | Result |
 |---|---|---|---|---|---|
 | 1 | PepsiCo top 10 products | Gemini 3 Flash | 7.5s | ~$0.005 | ✅ All 10 products with prices |
-| 2 | PepsiCo top 10 products | GitHub Copilot | 15s | ~$0.01 | ✅ All 10 with prices, Table 12.1 |
-| 3 | Elements of power in organisations | GitHub Copilot | 58s | ~$0.05 | ⚠️ Found power content from multiple chapters |
-| 4 | Degrees of diversification | GitHub Copilot | ~20s | ~$0.02 | ⚠️ Found correct topic, different classification |
+| 2 | PepsiCo top 10 products | Claude Sonnet 4.6 | 15s | ~$0.01 | ✅ All 10 with prices, Table 12.1 |
+| 3 | Elements of power in organisations | Claude Sonnet 4.5 | 58s | ~$0.05 | ⚠️ Found power content from multiple chapters |
+| 4 | Degrees of diversification | Claude Sonnet 4.5 | ~20s | ~$0.02 | ⚠️ Found correct topic, different classification |
 
 **Key finding:** Specific, targeted queries work best. Broad queries find relevant content but may pull from the wrong section when topics appear in multiple places.
 
