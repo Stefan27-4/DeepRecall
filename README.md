@@ -115,7 +115,7 @@ Tested against a 800-page textbook (Lynch, Strategic Management 7th Ed) — 59 c
 | Cross-reference | Limited | Connects dots across files |
 | Structure-aware | No | Reads headers, sections, dates |
 | Infrastructure | Vector DB + embeddings | None — just files |
-| Privacy | Data leaves your machine | 100% local |
+| Privacy | Data leaves your machine | No extra infrastructure |
 | Git-trackable | No | Yes — it's all markdown |
 
 ## Security & Privacy
