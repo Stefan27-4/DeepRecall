@@ -15,7 +15,12 @@ from typing import Optional
 SOUL_FILES = {"SOUL.md", "IDENTITY.md"}
 
 # Files that are part of the agent's "mind" (memory + context)
+# MEMORY.md = compact index/orientation (auto-loaded each session)
+# memory/LONG_TERM.md = full detailed memories (searched, not loaded wholesale)
 MIND_FILES = {"MEMORY.md", "USER.md", "TOOLS.md", "HEARTBEAT.md", "AGENTS.md"}
+
+# Long-term memory file (relative to workspace)
+LONG_TERM_FILE = Path("memory") / "LONG_TERM.md"
 
 # Directories to skip when scanning workspace
 SKIP_DIRS = {
@@ -72,11 +77,14 @@ class MemoryFile:
         self.key_terms = extract_key_terms(self.content)
         
         # Classify the file
+        rel = path.relative_to(workspace)
         if path.name in SOUL_FILES:
             self.category = "soul"
         elif path.name in MIND_FILES:
             self.category = "mind"
-        elif "memory" in str(path.relative_to(workspace)).lower():
+        elif rel == LONG_TERM_FILE:
+            self.category = "long-term"
+        elif "memory" in str(rel).lower():
             self.category = "daily-log"
         else:
             self.category = "workspace"
@@ -105,9 +113,15 @@ class MemoryScanner:
     
     Categorizes files into:
     - soul: Identity files (SOUL.md, IDENTITY.md) — who the agent IS
-    - mind: Memory files (MEMORY.md, USER.md, etc.) — what the agent KNOWS
+    - mind: Index/orientation files (MEMORY.md, USER.md, etc.) — compact context
+    - long-term: Full detailed memories (memory/LONG_TERM.md) — searched, not loaded
     - daily-log: Daily memory logs (memory/*.md) — what HAPPENED
     - workspace: Other relevant files — project context
+    
+    Recommended memory architecture:
+    - MEMORY.md: Compact index (~100 lines), auto-loaded each session
+    - memory/LONG_TERM.md: Full memories, searched via DeepRecall
+    - memory/YYYY-MM-DD.md: Daily raw logs
     """
     
     def __init__(self, workspace: Optional[Path] = None):
@@ -145,12 +159,20 @@ class MemoryScanner:
                 if f.exists():
                     self.files.append(MemoryFile(f, self.workspace))
         
+        already_soul_mind = {f.path for f in self.files}
+        
         if scope in ("memory", "all"):
+            # Long-term memory (full detailed memories)
+            lt = self.workspace / LONG_TERM_FILE
+            if lt.exists() and lt not in already_soul_mind:
+                self.files.append(MemoryFile(lt, self.workspace))
+            
             # Daily logs
             memory_dir = self.workspace / "memory"
             if memory_dir.exists():
                 for f in sorted(memory_dir.glob("*.md"), reverse=True):
-                    self.files.append(MemoryFile(f, self.workspace))
+                    if f != lt:  # Skip LONG_TERM.md (already added)
+                        self.files.append(MemoryFile(f, self.workspace))
         
         if scope in ("project", "all"):
             # Workspace files (skip already-added files)
@@ -190,7 +212,7 @@ class MemoryScanner:
         for f in self.files:
             categories.setdefault(f.category, []).append(f)
         
-        for cat in ["soul", "mind", "daily-log", "workspace"]:
+        for cat in ["soul", "mind", "long-term", "daily-log", "workspace"]:
             if cat in categories:
                 lines.append(f"[{cat.upper()}]")
                 for f in categories[cat]:

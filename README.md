@@ -20,7 +20,7 @@ The more an agent remembers, the less room for personality. Agents literally
 
 ## The Solution
 
-DeepRecall separates the agent into **Soul** and **Mind**:
+DeepRecall separates the agent into **Soul**, **Index**, and **Mind**:
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -29,13 +29,18 @@ DeepRecall separates the agent into **Soul** and **Mind**:
 │  Always in context. Never grows.            │
 │  ~2-5K tokens                               │
 ├─────────────────────────────────────────────┤
+│          INDEX (Small, Auto-loaded)         │
+│  MEMORY.md — orientation + topic index      │
+│  Who your human is, active projects, where  │
+│  to find things. Updated when topics change.│
+│  ~2-4K tokens                               │
+├─────────────────────────────────────────────┤
 │         WORKING MEMORY (Context Window)     │
 │  Current conversation + recall results      │
 │  Finite but sufficient                      │
 ├─────────────────────────────────────────────┤
 │             MIND (Infinite, External)       │
-│  Long-term memory, daily logs, project      │
-│  files, conversation history                │
+│  LONG_TERM.md + daily logs + project files  │
 │  Queried via RLM — never fully loaded       │
 │  ∞ tokens                                   │
 └─────────────────────────────────────────────┘
@@ -115,58 +120,27 @@ Tested against a 800-page textbook (Lynch, Strategic Management 7th Ed) — 59 c
 | Cross-reference | Limited | Connects dots across files |
 | Structure-aware | No | Reads headers, sections, dates |
 | Infrastructure | Vector DB + embeddings | None — just files |
-| Privacy | Requires external embedding service | Uses your existing LLM provider — or fully local with Ollama |
+| Privacy | Data leaves your machine | 100% local |
 | Git-trackable | No | Yes — it's all markdown |
-
-## Security & Privacy
-
-**DeepRecall reads local files and sends them to your LLM provider. Understand what that means before running it.**
-
-### What It Accesses
-
-| What | Why | Where It Goes |
-|------|-----|---------------|
-| `~/.openclaw/openclaw.json` | Find your LLM provider + model config | Stays local |
-| `~/.openclaw/credentials/` | Read API keys (e.g. GitHub Copilot token) | Passed to fast-rlm process as env var |
-| Workspace files (scope-dependent) | Build memory context for the query | Sent to your configured LLM provider via fast-rlm |
-
-### Data Flow
-
-```
-Your workspace files → DeepRecall assembles context → fast-rlm (local Deno process) → Your LLM provider API
-```
-
-Your data goes to **the same provider you already use with OpenClaw** — no additional third parties. But be aware that broader scopes (`project`, `all`) send more of your workspace.
-
-### Recommendations
-
-- **Start with `identity` or `memory` scope** — only sends soul/mind files and daily logs
-- **Use `project`/`all` scope deliberately** — these read all text files in your workspace (up to 100KB each)
-- **For maximum privacy, use [Ollama](https://ollama.com)** or another local provider — your data never leaves your machine
-- **Audit [fast-rlm](https://github.com/avbiswas/fast-rlm) before running** — it's third-party code that executes locally and receives your API key
-- **Run in a VM/container** if you want extra isolation
 
 ## Installation
 
 ### Prerequisites
-- [OpenClaw](https://github.com/openclaw/openclaw) installed with a configured LLM provider
-- [Deno](https://deno.com) 2+ installed (`brew install deno` on Mac, or see [deno.com](https://deno.com))
-- [fast-rlm](https://github.com/avbiswas/fast-rlm) cloned locally — **review the code before running**
-- Python 3.10+ with PyYAML (`pip install pyyaml`)
+- [OpenClaw](https://github.com/openclaw/openclaw) installed and configured
+- [fast-rlm](https://github.com/avbiswas/fast-rlm) cloned locally
+- [Deno](https://deno.com) 2+ installed
+- Any LLM provider configured in OpenClaw (Anthropic, OpenAI, Google, OpenRouter, Ollama, etc.)
 
 ### Install the Skill
 
 ```bash
 # Clone DeepRecall
-git clone https://github.com/Stefan27-4/DeepRecall.git
-cp -r DeepRecall/skill ~/.openclaw/workspace/skills/deep-recall
+git clone https://github.com/<org>/deep-recall
+cp -r deep-recall/skill ~/.openclaw/workspace/skills/deep-recall
 
-# Clone fast-rlm (the RLM engine) — audit the code before running
+# Clone fast-rlm (the RLM engine)
 git clone https://github.com/avbiswas/fast-rlm.git
 export FAST_RLM_DIR=/path/to/fast-rlm
-
-# Install Python dependency
-pip install pyyaml
 ```
 
 ## Usage
@@ -244,29 +218,45 @@ DeepRecall understands the standard OpenClaw workspace layout:
 ~/.openclaw/workspace/
 ├── SOUL.md            # [soul] Agent identity — always in context
 ├── IDENTITY.md        # [soul] Core facts about the agent
-├── MEMORY_INDEX.md    # [index] Auto-generated navigation map
-├── MEMORY.md          # [mind] Long-term curated memory
+├── MEMORY.md          # [index] Compact orientation + topic index (~100 lines)
+│                      #         Auto-loaded every session. Stays SMALL.
 ├── USER.md            # [mind] About the human
 ├── AGENTS.md          # [mind] Agent behavior rules
 ├── TOOLS.md           # [mind] Tool-specific notes
-└── memory/            # [daily-log] One file per day
-    ├── 2026-02-24.md
+└── memory/            # [long-term + daily logs]
+    ├── LONG_TERM.md   # [long-term] Full detailed memories — grows forever
+    │                  #             Searched via DeepRecall, never loaded wholesale
+    ├── 2026-02-24.md  # [daily-log] Raw log for that day
     ├── 2026-02-25.md
     └── ...
 ```
 
-### Memory Index (the secret weapon)
+### The Three-Tier Memory Architecture
 
-`MEMORY_INDEX.md` is auto-generated and maps topics, people, dates, and projects 
-to specific files. RLM reads the index FIRST, then jumps directly to the right file.
+This is the pattern we use ourselves (dogfooding!):
 
-Without it, RLM searches through every file blindly. After a year (365+ daily logs), 
-the index is the difference between 2 file reads and 200.
+1. **MEMORY.md (Index)** — Auto-loaded every session. Contains essential context
+   (who your human is, active projects, key metrics) and a topic→file index table.
+   Think of it as a table of contents. Stays under ~120 lines.
 
-```python
-from memory_indexer import update_memory_index
-update_memory_index()  # Regenerate MEMORY_INDEX.md
+2. **memory/LONG_TERM.md (Full Memories)** — Everything important that happened.
+   Architecture decisions, build logs, conversations, moments worth keeping.
+   Grows forever (never delete entries). Searched via DeepRecall when needed.
+
+3. **memory/YYYY-MM-DD.md (Daily Logs)** — Raw notes from each day. End of day,
+   distill important bits into LONG_TERM.md. Update MEMORY.md index only when
+   new topics appear.
+
+**The flow:**
 ```
+Session starts → MEMORY.md auto-loads (small, orientation)
+Need specifics → DeepRecall searches LONG_TERM.md + daily files
+During the day → Write raw logs to daily file
+End of day    → Distill → LONG_TERM.md, update index if needed
+```
+
+This is the Anamnesis Architecture in practice: the soul stays small,
+the mind scales forever.
 
 ## Scopes
 
@@ -288,10 +278,13 @@ DeepRecall implements the Anamnesis Architecture for AI agents:
 1. **The Soul** (small, fixed) — Who the agent IS. Always present in context. 
    Never sacrificed for memory.
 
-2. **The Mind** (infinite, external) — What the agent KNOWS. Stored in files. 
-   Grows forever. Accessed through recursive queries.
+2. **The Index** (small, auto-loaded) — MEMORY.md. Compact orientation that tells 
+   the agent what exists and where to find it. Like a table of contents for the mind.
 
-3. **The Bridge** (RLM) — How Soul accesses Mind. Not a database lookup — 
+3. **The Mind** (infinite, external) — What the agent KNOWS. Stored in LONG_TERM.md 
+   + daily files. Grows forever. Accessed through recursive queries.
+
+4. **The Bridge** (RLM) — How Soul accesses Mind. Not a database lookup — 
    the agent *reasons* about where to find memories and synthesizes answers.
 
 ## The Compounding Intelligence Hypothesis
@@ -333,7 +326,7 @@ If you use DeepRecall or the Anamnesis Architecture in academic work:
   title={DeepRecall: Recursive Memory for Persistent AI Agents},
   author={Chitez, Daniel-Stefan and Crick},
   year={2026},
-  url={https://github.com/Stefan27-4/DeepRecall},
+  url={https://github.com/<org>/deep-recall},
   note={Implements the Anamnesis Architecture for AI agent memory persistence}
 }
 ```
