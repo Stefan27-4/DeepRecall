@@ -120,7 +120,7 @@ Tested against a 800-page textbook (Lynch, Strategic Management 7th Ed) — 59 c
 | Cross-reference | Limited | Connects dots across files |
 | Structure-aware | No | Reads headers, sections, dates |
 | Infrastructure | Vector DB + embeddings | None — just files |
-| Privacy | Data leaves your machine | 100% local |
+| Privacy | Data leaves your machine | Can be fully local |
 | Git-trackable | No | Yes — it's all markdown |
 
 ## Installation
@@ -326,7 +326,7 @@ If you use DeepRecall or the Anamnesis Architecture in academic work:
   title={DeepRecall: Recursive Memory for Persistent AI Agents},
   author={Chitez, Daniel-Stefan and Crick},
   year={2026},
-  url={https://github.com/<org>/deep-recall},
+  url={https://github.com/Stefan27-4/DeepRecall},
   note={Implements the Anamnesis Architecture for AI agent memory persistence}
 }
 ```
