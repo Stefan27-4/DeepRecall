@@ -143,6 +143,8 @@ git clone https://github.com/avbiswas/fast-rlm.git
 export FAST_RLM_DIR=/path/to/fast-rlm
 ```
 
+> **Note:** DeepRecall auto-patches fast-rlm on first run with fixes for GitHub Copilot authentication and a parser robustness improvement. The original file is backed up as `call_llm.ts.bak`.
+
 ## Usage
 
 ### From Python

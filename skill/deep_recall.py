@@ -92,6 +92,35 @@ def _find_deno() -> Optional[str]:
     return None
 
 
+def _apply_patches(fast_rlm_dir: Path):
+    """
+    Auto-patch fast-rlm with fixes required for DeepRecall:
+    - GitHub Copilot header support
+    - Parser fix for stray prose before repl blocks
+    
+    Only patches if the target file differs from our shipped version.
+    """
+    import filecmp
+    patches_dir = SKILL_DIR / "patches"
+    if not patches_dir.exists():
+        return
+    
+    for patch_file in patches_dir.iterdir():
+        if patch_file.suffix in ('.ts', '.js'):
+            target = fast_rlm_dir / "src" / patch_file.name
+            if target.exists() and filecmp.cmp(str(patch_file), str(target), shallow=False):
+                continue  # Already patched
+            if target.exists():
+                # Back up original
+                backup = target.with_suffix(target.suffix + '.bak')
+                if not backup.exists():
+                    import shutil
+                    shutil.copy2(str(target), str(backup))
+            # Apply patch
+            import shutil
+            shutil.copy2(str(patch_file), str(target))
+
+
 def _find_workspace() -> Path:
     """Find the OpenClaw workspace directory."""
     # Check environment
@@ -204,6 +233,9 @@ def recall(
         f"{memory_index}\n\n"
         f"{context}"
     )
+    
+    # Step 6.5: Auto-patch fast-rlm with Copilot headers + parser fixes
+    _apply_patches(fast_rlm_dir)
     
     # Step 7: Write temporary config file
     import tempfile, json, subprocess, yaml
