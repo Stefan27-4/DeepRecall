@@ -7,7 +7,7 @@ Thank you for your interest in contributing to DeepRecall! This guide will help 
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/<owner>/DeepRecall.git
+   git clone https://github.com/Stefan27-4/DeepRecall.git
    cd DeepRecall
    ```
 

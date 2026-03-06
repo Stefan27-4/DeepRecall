@@ -100,10 +100,10 @@ class ProviderConfig:
     def __repr__(self):
         if not self.api_key:
             key_preview = "[NOT SET]"
-        elif len(self.api_key) > 12:
-            key_preview = self.api_key[:8] + "..." + self.api_key[-4:]
+        elif len(self.api_key) > 8:
+            key_preview = self.api_key[:4] + "..." + self.api_key[-4:]
         else:
-            key_preview = self.api_key[:8] + "..."
+            key_preview = "***"
         return (f"ProviderConfig(provider={self.provider}, key={key_preview}, "
                 f"base_url={self.base_url}, model={self.primary_model})")
 
@@ -164,9 +164,14 @@ def _get_copilot_token(openclaw_config: Optional[dict] = None) -> Optional[str]:
     try:
         config = openclaw_config if openclaw_config is not None else _load_json(CONFIG_FILE)
 
-        # Derive credentials directory from config, fall back to module default
+        # Derive credentials directory from config, fall back to module default.
+        # Relative paths are resolved relative to OPENCLAW_DIR.
         creds_dir_override = config.get("credentialsDir")
-        creds_dir = Path(creds_dir_override) if creds_dir_override else CREDENTIALS_DIR
+        if creds_dir_override:
+            p = Path(creds_dir_override)
+            creds_dir = p if p.is_absolute() else OPENCLAW_DIR / p
+        else:
+            creds_dir = CREDENTIALS_DIR
 
         token_file = creds_dir / "github-copilot.token.json"
         if not token_file.exists():
@@ -251,7 +256,8 @@ def make_request(url: str, headers: dict, body: dict,
 
 def make_gemini_native_request(config: ProviderConfig, messages: list[dict],
                                temperature: float = 0.7,
-                               max_tokens: int = 1024) -> dict:
+                               max_tokens: int = 1024,
+                               timeout: int = 60) -> dict:
     """
     Call Gemini using its native REST API (not OpenAI-compatible).
 
@@ -263,6 +269,7 @@ def make_gemini_native_request(config: ProviderConfig, messages: list[dict],
         messages: OpenAI-style messages (role/content dicts).
         temperature: Sampling temperature.
         max_tokens: Maximum output tokens.
+        timeout: Request timeout in seconds.
 
     Returns:
         Raw Gemini API response dict.
@@ -271,8 +278,10 @@ def make_gemini_native_request(config: ProviderConfig, messages: list[dict],
     if "/" in model_name:
         model_name = model_name.split("/", 1)[1]
 
-    url = (f"{GEMINI_NATIVE_URL}/models/{model_name}:generateContent"
-           f"?key={config.api_key}")
+    url = f"{GEMINI_NATIVE_URL}/models/{model_name}:generateContent"
+    # Pass the key in a header rather than a URL query parameter so it is
+    # never inadvertently recorded in access logs or tracebacks.
+    headers = {"x-goog-api-key": config.api_key}
 
     contents: list[dict] = []
     system_instruction = None
@@ -295,14 +304,15 @@ def make_gemini_native_request(config: ProviderConfig, messages: list[dict],
     if system_instruction:
         body["systemInstruction"] = system_instruction
 
-    return make_request(url, {}, body)
+    return make_request(url, headers, body, timeout=timeout)
 
 
 def call_llm(messages: list[dict],
              config: Optional[ProviderConfig] = None,
              temperature: float = 0.7,
              max_tokens: int = 1024,
-             native_gemini: bool = False) -> str:
+             native_gemini: bool = False,
+             timeout: int = 60) -> str:
     """
     High-level function to call an LLM provider.
 
@@ -317,6 +327,7 @@ def call_llm(messages: list[dict],
         max_tokens: Maximum tokens to generate.
         native_gemini: If *True* and provider is ``google``, use the Gemini
             native REST API instead of the OpenAI-compatible wrapper.
+        timeout: HTTP request timeout in seconds (default 60).
 
     Returns:
         The assistant's response text.
@@ -328,6 +339,7 @@ def call_llm(messages: list[dict],
     if config.provider == "google" and native_gemini:
         result = make_gemini_native_request(
             config, messages, temperature=temperature, max_tokens=max_tokens,
+            timeout=timeout,
         )
         candidates = result.get("candidates", [])
         if candidates:
@@ -338,14 +350,15 @@ def call_llm(messages: list[dict],
 
     # Anthropic native path
     if config.provider == "anthropic":
-        return _call_anthropic(config, messages, temperature, max_tokens)
+        return _call_anthropic(config, messages, temperature, max_tokens, timeout)
 
     # OpenAI-compatible path (default)
-    return _call_openai_compatible(config, messages, temperature, max_tokens)
+    return _call_openai_compatible(config, messages, temperature, max_tokens, timeout)
 
 
 def _call_anthropic(config: ProviderConfig, messages: list[dict],
-                    temperature: float, max_tokens: int) -> str:
+                    temperature: float, max_tokens: int,
+                    timeout: int = 60) -> str:
     """Call Anthropic Messages API."""
     model_name = config.primary_model
     if "/" in model_name:
@@ -375,7 +388,7 @@ def _call_anthropic(config: ProviderConfig, messages: list[dict],
     if system_text:
         body["system"] = system_text
 
-    result = make_request(url, headers, body)
+    result = make_request(url, headers, body, timeout=timeout)
     for block in result.get("content", []):
         if block.get("type") == "text":
             return block.get("text", "")
@@ -383,7 +396,8 @@ def _call_anthropic(config: ProviderConfig, messages: list[dict],
 
 
 def _call_openai_compatible(config: ProviderConfig, messages: list[dict],
-                            temperature: float, max_tokens: int) -> str:
+                            temperature: float, max_tokens: int,
+                            timeout: int = 60) -> str:
     """Call an OpenAI-compatible chat completions endpoint."""
     model_name = config.primary_model
     if "/" in model_name:
@@ -402,7 +416,7 @@ def _call_openai_compatible(config: ProviderConfig, messages: list[dict],
         "max_tokens": max_tokens,
     }
 
-    result = make_request(url, headers, body)
+    result = make_request(url, headers, body, timeout=timeout)
     choices = result.get("choices", [])
     if choices:
         return choices[0].get("message", {}).get("content", "")
@@ -499,9 +513,9 @@ if __name__ == "__main__":
         print(f"   Base URL:  {cfg.base_url}")
         print(f"   Model:     {cfg.primary_model}")
         if cfg.api_key:
-            masked = (cfg.api_key[:8] + "..." + cfg.api_key[-4:]
-                      if len(cfg.api_key) > 12
-                      else cfg.api_key[:8] + "...")
+            masked = (cfg.api_key[:4] + "..." + cfg.api_key[-4:]
+                      if len(cfg.api_key) > 8
+                      else "***")
         else:
             masked = "[NOT SET]"
         print(f"   Key:       {masked}")

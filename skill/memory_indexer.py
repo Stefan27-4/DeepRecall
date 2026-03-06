@@ -15,7 +15,7 @@ The more memory you have, the more this matters.
 
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from collections import defaultdict
@@ -151,7 +151,7 @@ def build_memory_index(workspace: Optional[Path] = None) -> str:
             project_map[proj].add(log["path"])
 
     # Generate the index
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     lines = [
         "# Memory Index",

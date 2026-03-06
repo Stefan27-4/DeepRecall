@@ -5,7 +5,7 @@ Scans the OpenClaw agent workspace to find memory-related files,
 builds a lightweight manifest for RLM to navigate efficiently.
 """
 
-import json
+import os
 import re
 from pathlib import Path
 from typing import Optional
@@ -70,17 +70,19 @@ class MemoryFile:
     
     def __init__(self, path: Path, workspace: Path):
         self.path = path
-        self.rel_path = str(path.relative_to(workspace))
+        rel = path.relative_to(workspace)
+        self.rel_path = str(rel)
         self.content = path.read_text(errors="replace")
         self.size = len(self.content)
         self.headers = extract_headers(self.content)
         self.key_terms = extract_key_terms(self.content)
         
-        # Classify the file
-        rel = path.relative_to(workspace)
-        if path.name in SOUL_FILES:
+        # Classify the file.  Soul/mind names are only authoritative at the
+        # workspace root; a file like memory/SOUL.md should be a daily-log.
+        at_root = rel.parent == Path(".")
+        if at_root and path.name in SOUL_FILES:
             self.category = "soul"
-        elif path.name in MIND_FILES:
+        elif at_root and path.name in MIND_FILES:
             self.category = "mind"
         elif rel == LONG_TERM_FILE:
             self.category = "long-term"
@@ -249,9 +251,6 @@ class MemoryScanner:
             "files": [f.to_dict() for f in self.files],
         }
 
-
-# Need this for the import in MemoryScanner.__init__
-import os
 
 if __name__ == "__main__":
     scanner = MemoryScanner()

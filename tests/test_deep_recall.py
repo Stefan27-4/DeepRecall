@@ -89,6 +89,15 @@ class TestReadFile:
             result = _read_file("../../etc/passwd", ws)
             assert result is None
 
+    def test_returns_none_on_read_exception(self):
+        """If read_text() raises an exception, _read_file returns None."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            (ws / "test.md").write_text("data")
+            with patch("skill.deep_recall.Path.read_text", side_effect=PermissionError("no read")):
+                result = _read_file("test.md", ws)
+            assert result is None
+
 
 # ---------------------------------------------------------------------------
 # _manager_call
@@ -668,15 +677,15 @@ class TestFindWorkspaceEdgeCases:
             bad_config = base / "openclaw.json"
             bad_config.write_text("{bad json")
 
-            real_expanduser = Path.expanduser
-            def fake_expanduser(self):
-                p = str(self)
+            real_expanduser = os.path.expanduser
+
+            def fake_expanduser(p: str) -> str:
                 if ".openclaw/openclaw.json" in p:
-                    return bad_config
-                return real_expanduser(self)
+                    return str(bad_config)
+                return real_expanduser(p)
 
             with patch.dict("os.environ", {}, clear=True), \
-                 patch.object(Path, "expanduser", fake_expanduser):
+                 patch("os.path.expanduser", side_effect=fake_expanduser):
                 result = _find_workspace()
             # Falls back to default
             assert "openclaw" in str(result).lower()
