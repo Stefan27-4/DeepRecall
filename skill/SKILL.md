@@ -2,7 +2,7 @@
 name: deep-recall
 version: 1.0.4
 description: Pure-Python recursive memory recall for persistent AI agents. Manager→workers→synthesis RLM loop — no Deno, no fast-rlm, just HTTP calls to any OpenAI-compatible LLM.
-metadata: {"openclaw": {"requires": {"env": ["ANTHROPIC_API_KEY (optional)", "OPENAI_API_KEY (optional)", "GEMINI_API_KEY (optional)", "OPENROUTER_API_KEY (optional)"], "config_paths": ["~/.openclaw/openclaw.json", "~/.openclaw/agents/*/agent/models.json", "~/.openclaw/credentials/*"]}, "homepage": "https://github.com/Stefan27-4/DeepRecall"}}
+metadata: {"openclaw": {"requires": {"env": ["ANTHROPIC_API_KEY (optional)", "OPENAI_API_KEY (optional)", "GOOGLE_API_KEY (optional)", "OPENROUTER_API_KEY (optional)", "DEEPSEEK_API_KEY (optional)", "MISTRAL_API_KEY (optional)", "TOGETHER_API_KEY (optional)", "GROQ_API_KEY (optional)", "FIREWORKS_API_KEY (optional)", "COHERE_API_KEY (optional)", "PERPLEXITY_API_KEY (optional)", "SAMBANOVA_API_KEY (optional)", "CEREBRAS_API_KEY (optional)", "XAI_API_KEY (optional)", "MINIMAX_API_KEY (optional)", "ZHIPU_API_KEY (optional)", "MOONSHOT_API_KEY (optional)", "DASHSCOPE_API_KEY (optional)"], "config_paths": ["~/.openclaw/openclaw.json", "~/.openclaw/agents/*/agent/models.json", "~/.openclaw/credentials/*"]}, "homepage": "https://github.com/Stefan27-4/DeepRecall"}}
 ---
 
 # DeepRecall v2 — OpenClaw Skill
@@ -163,7 +163,7 @@ Provider, API key, and model are resolved automatically from:
 1. `~/.openclaw/openclaw.json` — primary model setting
 2. `~/.openclaw/agents/main/agent/models.json` — provider base URLs
 3. `~/.openclaw/credentials/` — cached tokens (e.g. GitHub Copilot)
-4. Environment variables — fallback (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.)
+4. Environment variables — fallback (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, etc. (18+ providers supported, all optional))
 
 ### Supported Providers (20+)
 
@@ -240,7 +240,7 @@ DeepRecall reads your workspace memory files and **sends their contents to your 
 
 **Credentials used locally:**
 - `~/.openclaw/openclaw.json` and `~/.openclaw/credentials/*` — to resolve your LLM provider
-- Env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) — as fallback if no OpenClaw config found
+- Env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, etc. (18+ providers supported, all optional)) — as fallback if no OpenClaw config found
 
 ## Recommended Memory Architecture
 
