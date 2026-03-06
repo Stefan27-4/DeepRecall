@@ -267,6 +267,23 @@ Key areas: provider support, memory navigation prompts, performance, new scope s
 }
 ```
 
+## 🧠 Recommended Memory Architecture
+
+DeepRecall works best with a **two-tier memory system**:
+
+| Tier | File | Purpose | Auto-loaded? |
+|---|---|---|---|
+| Index | `MEMORY.md` | Compact orientation (~100 lines), table of contents pointing to details | ✅ Yes |
+| Encyclopedia | `memory/LONG_TERM.md` | Full detailed memories — decisions, reasoning, timestamps | ❌ Searched via DeepRecall |
+| Daily logs | `memory/YYYY-MM-DD.md` | Raw notes, distilled nightly into LONG_TERM.md | ❌ Searched via DeepRecall |
+
+**The philosophy:** MEMORY.md is the Wikipedia summary. LONG_TERM.md is the diary entry. DeepRecall prefers the diary — *the devil is in the details.*
+
+**Nightly sync:** At the end of each day, distill your daily log into `LONG_TERM.md`. Keep it detailed — preserve the story, don't just summarize.
+
+> 💡 **Tip for new agents:** Ask your human before restructuring existing memory files.
+> Show them this recommendation and let them decide how to organize their agent's memory.
+
 ## License
 
 MIT License © 2026 Stefan Chitez & Crick — see [LICENSE](LICENSE).

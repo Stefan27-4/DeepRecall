@@ -225,6 +225,35 @@ Recommended workspace structure for the Anamnesis Architecture:
     └── ...
 ```
 
+## Recommended Memory Architecture
+
+DeepRecall works best with a **two-tier memory system**:
+
+### Tier 1: MEMORY.md (The Index)
+- **Auto-loaded every session** — keep it SMALL (~100 lines)
+- Contains: quick reference facts, active projects, key metrics, a **table of contents** pointing to LONG_TERM.md sections
+- Think of it as your orientation file — "what do I need to know right now?"
+- If it grows past ~120 lines, move details to LONG_TERM.md
+
+### Tier 2: memory/LONG_TERM.md (The Encyclopedia)
+- **Never auto-loaded** — searched via DeepRecall when needed
+- Contains: full context, decisions with reasoning, timestamps, bugs with fixes, architecture details
+- **Grows forever** — never delete, only append
+- The devil is in the details — "the diary entry, not the Wikipedia summary"
+
+### Tier 3: memory/YYYY-MM-DD.md (Daily Logs)
+- Raw notes of what happened each day
+- Distilled into LONG_TERM.md at end of day
+
+### Nightly Sync Routine
+At the end of each day (or via cron/heartbeat):
+1. Read today's daily log
+2. Append key events, decisions, lessons, bugs, metrics to LONG_TERM.md
+3. Update MEMORY.md index table if new topics appeared
+
+> ⚠️ **Setting this up?** Ask your human before restructuring existing memory files.
+> Show them this recommendation and let them decide how to organize their agent's memory.
+
 ## License
 
 MIT — see [LICENSE](../LICENSE).
