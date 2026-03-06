@@ -1,6 +1,6 @@
 ---
 name: deep-recall
-version: 2.0.0
+version: 1.0.4
 description: Pure-Python recursive memory recall for persistent AI agents. Manager→workers→synthesis RLM loop — no Deno, no fast-rlm, just HTTP calls to any OpenAI-compatible LLM.
 metadata: {"openclaw": {"requires": {"env": []}, "homepage": "https://github.com/Stefan27-4/DeepRecall"}}
 ---

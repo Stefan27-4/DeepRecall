@@ -2,4 +2,4 @@
 from .deep_recall import recall, recall_quick, recall_deep
 
 __all__ = ["recall", "recall_quick", "recall_deep"]
-__version__ = "2.0.0"
+__version__ = "1.0.4"

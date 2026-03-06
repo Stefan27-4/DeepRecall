@@ -1,6 +1,6 @@
 # DeepRecall — Recursive Memory for AI Agents
 
-> **v2.0.0** — Pure Python RLM. No Deno, no fast-rlm, no external runtimes.
+> **v1.0.4** — Pure Python RLM. No Deno, no fast-rlm, no external runtimes.
 
 DeepRecall is an [OpenClaw](https://github.com/openclaw/openclaw) skill that gives AI agents **infinite memory** using a Recursive Language Model (RLM) loop. Instead of cramming everything into the context window, the agent recursively queries its own memory files through a manager → workers → synthesis pipeline — entirely in Python.
 
@@ -89,7 +89,7 @@ result = recall(
 
 ## Architecture
 
-DeepRecall v2.0.0 runs a **pure Python RLM loop** with three stages:
+DeepRecall v1.0.4 runs a **pure Python RLM loop** with three stages:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
