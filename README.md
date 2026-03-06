@@ -267,6 +267,12 @@ Key areas: provider support, memory navigation prompts, performance, new scope s
 }
 ```
 
+## ⚠️ Privacy
+
+DeepRecall sends workspace file contents to your configured LLM provider for recall. This includes memory files, daily logs, and potentially project files (depending on scope). API keys and credentials are read locally for authentication and are **never included in prompts**.
+
+See [SKILL.md](skill/SKILL.md#-privacy-notice) for full details.
+
 ## 🧠 Recommended Memory Architecture
 
 DeepRecall works best with a **two-tier memory system**:

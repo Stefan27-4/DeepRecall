@@ -2,7 +2,7 @@
 name: deep-recall
 version: 1.0.4
 description: Pure-Python recursive memory recall for persistent AI agents. Manager→workers→synthesis RLM loop — no Deno, no fast-rlm, just HTTP calls to any OpenAI-compatible LLM.
-metadata: {"openclaw": {"requires": {"env": []}, "homepage": "https://github.com/Stefan27-4/DeepRecall"}}
+metadata: {"openclaw": {"requires": {"env": [], "credentials": "Uses your existing OpenClaw LLM provider config (~/.openclaw/openclaw.json, credentials/*. Optionally reads: ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY env vars as fallback."}, "homepage": "https://github.com/Stefan27-4/DeepRecall"}}
 ---
 
 # DeepRecall v2 — OpenClaw Skill
@@ -224,6 +224,23 @@ Recommended workspace structure for the Anamnesis Architecture:
     ├── 2026-03-04.md
     └── ...
 ```
+
+## ⚠️ Privacy Notice
+
+DeepRecall reads your workspace memory files and **sends their contents to your configured LLM provider** (Anthropic, OpenAI, Gemini, etc.) to perform recall. This is how it works — there is no local-only mode.
+
+**What gets sent:**
+- File metadata (names, headings, topics) → to the manager LLM
+- Full file contents of selected files → to worker LLMs
+- This may include personal notes, daily logs, project files
+
+**What is NOT sent:**
+- API keys and credentials (read locally for auth, never in prompts)
+- Files outside your workspace
+
+**Credentials used locally:**
+- `~/.openclaw/openclaw.json` and `~/.openclaw/credentials/*` — to resolve your LLM provider
+- Env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) — as fallback if no OpenClaw config found
 
 ## Recommended Memory Architecture
 
