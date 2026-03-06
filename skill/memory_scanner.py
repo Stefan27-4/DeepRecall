@@ -127,7 +127,7 @@ class MemoryScanner:
     """
     
     def __init__(self, workspace: Optional[Path] = None):
-        self.workspace = workspace or Path(
+        self.workspace = Path(workspace) if workspace else Path(
             os.environ.get("OPENCLAW_WORKSPACE", 
                           os.path.expanduser("~/.openclaw/workspace"))
         )

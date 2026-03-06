@@ -402,7 +402,7 @@ def recall(
         raise RuntimeError(f"DeepRecall cannot resolve LLM provider: {e}")
 
     # 2. Scan memory files
-    ws = workspace or _find_workspace()
+    ws = Path(workspace) if workspace else _find_workspace()
     scanner = MemoryScanner(workspace=ws)
     scanner.scan(scope=scope)
 
