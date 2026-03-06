@@ -157,16 +157,18 @@ class TestBuildMemoryIndex:
             index = build_memory_index(workspace=ws)
             assert "## MEMORY.md Sections" in index
 
-    def test_non_date_files_ignored(self):
+    def test_non_date_files_in_long_term_section(self):
         with tempfile.TemporaryDirectory() as tmp:
             ws = Path(tmp)
             mem = ws / "memory"
             mem.mkdir()
-            (mem / "LONG_TERM.md").write_text("# Long term")
+            (mem / "LONG_TERM.md").write_text("# Long term\n## Chess Game\nPlayed on Feb 27")
             (mem / "random_notes.md").write_text("# Random")
             index = build_memory_index(workspace=ws)
-            # Non-date filenames should not appear in timeline
-            assert "random_notes" not in index
+            # Non-date files should appear in Long-Term section, not Timeline
+            assert "LONG_TERM.md" in index
+            assert "random_notes.md" in index
+            assert "Long-Term Memory Files" in index
 
 
 # ---------------------------------------------------------------------------

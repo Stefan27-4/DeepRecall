@@ -122,6 +122,20 @@ def build_memory_index(workspace: Optional[Path] = None) -> str:
                     "topics": topics,
                 }
 
+    # Non-dated memory files (e.g. LONG_TERM.md, heartbeat-state.json)
+    other_memory = {}
+    if memory_dir.exists():
+        for f in sorted(memory_dir.glob("*.md")):
+            date_match = re.match(r"(\d{4}-\d{2}-\d{2})", f.name)
+            if not date_match:  # Not a daily log
+                content = f.read_text(errors="replace")
+                topics = extract_topics(content, f.name)
+                other_memory[f.name] = {
+                    "path": f"memory/{f.name}",
+                    "size": len(content),
+                    "topics": topics,
+                }
+
     # Analyze MEMORY.md
     memory_topics = None
     if memory_md.exists():
@@ -150,6 +164,16 @@ def build_memory_index(workspace: Optional[Path] = None) -> str:
         for proj in t["projects"]:
             project_map[proj].add(log["path"])
 
+    # Include non-dated memory files (e.g. LONG_TERM.md)
+    for name, info in other_memory.items():
+        t = info["topics"]
+        for kw in t["keywords"]:
+            topic_map[kw].add(info["path"])
+        for p in t["people"]:
+            people_map[p].add(info["path"])
+        for proj in t["projects"]:
+            project_map[proj].add(info["path"])
+
     # Generate the index
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -171,6 +195,16 @@ def build_memory_index(workspace: Optional[Path] = None) -> str:
         lines.append(f"- **{date_str}** → `{log['path']}` ({log['size']:,} chars)")
         lines.append(f"  Topics: {summary}")
     lines.append("")
+
+    # Long-term memory files (non-daily)
+    if other_memory:
+        lines.append("## Long-Term Memory Files")
+        for name, info in sorted(other_memory.items()):
+            t = info["topics"]
+            hdrs = ", ".join(t["headers"][:8]) if t["headers"] else "no headers"
+            lines.append(f"- `{info['path']}` ({info['size']:,} chars)")
+            lines.append(f"  Sections: {hdrs}")
+        lines.append("")
 
     # People
     if people_map:
