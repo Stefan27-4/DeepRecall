@@ -1,195 +1,167 @@
 # DeepRecall — Recursive Memory for AI Agents
 
-## Overview
+> **v2.0.0** — Pure Python RLM. No Deno, no fast-rlm, no external runtimes.
 
-DeepRecall is an OpenClaw skill that gives AI agents **infinite memory** using 
-RLM (Recursive Language Models). Instead of cramming all memory into the context 
-window, the agent recursively queries its own memory files.
+DeepRecall is an [OpenClaw](https://github.com/openclaw/openclaw) skill that gives AI agents **infinite memory** using a Recursive Language Model (RLM) loop. Instead of cramming everything into the context window, the agent recursively queries its own memory files through a manager → workers → synthesis pipeline — entirely in Python.
 
-**Architecture:** Anamnesis Architecture  
+**Architecture:** Anamnesis Architecture
 **Principle:** *"The soul stays small, the mind scales forever."*
 
 ## The Problem
 
-Current AI agents face an impossible tradeoff:
-- **Remember who they are** (personality, identity, values) → less room for memory
-- **Remember what happened** (conversations, decisions, history) → identity gets pushed out
-
-The more an agent remembers, the less room for personality. Agents literally 
-**forget who they are** to remember what happened.
+AI agents face an impossible tradeoff: **remember who they are** (personality, identity) or **remember what happened** (conversations, decisions). The more they remember, the less room for identity. Agents literally forget who they are.
 
 ## The Solution
 
-DeepRecall separates the agent into **Soul**, **Index**, and **Mind**:
+DeepRecall separates the agent into **Soul** (small, always in context), **Index** (topic map), and **Mind** (infinite, queried recursively):
 
 ```
 ┌─────────────────────────────────────────────┐
 │              SOUL (Small, Fixed)            │
 │  Identity, values, personality, core rules  │
-│  Always in context. Never grows.            │
-│  ~2-5K tokens                               │
+│  Always in context. Never grows. ~2-5K tkns │
 ├─────────────────────────────────────────────┤
 │          INDEX (Small, Auto-loaded)         │
 │  MEMORY.md — orientation + topic index      │
-│  Who your human is, active projects, where  │
-│  to find things. Updated when topics change.│
 │  ~2-4K tokens                               │
 ├─────────────────────────────────────────────┤
 │         WORKING MEMORY (Context Window)     │
 │  Current conversation + recall results      │
-│  Finite but sufficient                      │
 ├─────────────────────────────────────────────┤
 │             MIND (Infinite, External)       │
 │  LONG_TERM.md + daily logs + project files  │
 │  Queried via RLM — never fully loaded       │
-│  ∞ tokens                                   │
 └─────────────────────────────────────────────┘
-         ↕ RLM (Recursive Bridge)
-  Agent writes code to search memory
-  Sub-agents read specific files/sections
-  Only answers enter working memory
+         ↕ Pure Python RLM Bridge
 ```
-
-## What It Can Do
-
-- **Recall specific facts** from months of conversation logs ("What did we decide about the budget?")
-- **Synthesize across files** — connects information from multiple daily logs, project docs, and memory files
-- **Navigate large document collections** — tested on 800-page textbook (59 files, 2.9MB), found specific tables and sections in 7-15 seconds
-- **Auto-detect your LLM provider** — reads OpenClaw config, works with 20+ providers out of the box
-- **Cost-efficient** — uses cheap sub-agent models for file reading ($0.005-$0.15 per query)
-- **Zero infrastructure** — no vector database, no embeddings server, no cloud API. Just markdown files + an LLM
-
-## Limitations (Honest)
-
-- **Accuracy depends on query specificity** — broad queries ("tell me about power") may find the wrong section when topics overlap across files. Specific queries ("PepsiCo's top 10 products") nail it every time
-- **Not instant** — 7-90 seconds per query depending on depth and provider. This is recall, not search
-- **Costs tokens** — every query runs an LLM. Cheap ($0.005-$0.15), but not free
-- **Requires fast-rlm + Deno** — extra dependencies to install
-- **LLMs can still hallucinate** — if the answer isn't clearly in the files, the model may synthesize from training data. Better prompts = better accuracy
-- **Best with unique content** — personal memory files (decisions, conversations) work great because the LLM can't hallucinate personal facts. Generic/academic content is harder
-
-## When Is It Actually Useful?
-
-DeepRecall becomes valuable when your agent's memory **exceeds what fits in context**:
-
-| Workspace Size | Need DeepRecall? | Why |
-|---|---|---|
-| < 50KB | ❌ Not yet | Just paste files in the prompt |
-| 50-200KB | ⚠️ Maybe | Starting to drop older files from context |
-| 200KB-1MB | ✅ Yes | Agent is "forgetting" important history |
-| > 1MB | ✅ Absolutely | Impossible to fit in any context window |
-
-**Sweet spot:** An agent that's been running for weeks/months with daily logs, project docs, and accumulated decisions.
-
-### Tips for Better Queries
-
-- **Be specific:** "What are PepsiCo's top 10 products?" ✅ vs "Tell me about PepsiCo" ❌
-- **Name the framework/author:** "Lynch's three levels of diversification" ✅ vs "diversification types" ❌
-- **Include section references if known:** "Section 9.2 on corporate options" ✅
-- **Ask about unique content:** Personal decisions, project history, and conversations work best
-
-## Test Results
-
-Tested against a 800-page textbook (Lynch, Strategic Management 7th Ed) — 59 chunks, 2.9MB:
-
-| Test | Query | Provider | Time | Cost | Result |
-|---|---|---|---|---|---|
-| 1 | PepsiCo top 10 products | Gemini 3 Flash | 7.5s | ~$0.005 | ✅ All 10 products with prices |
-| 2 | PepsiCo top 10 products | Claude Sonnet 4.6 | 15s | ~$0.01 | ✅ All 10 with prices, Table 12.1 |
-| 3 | Elements of power in organisations | Claude Sonnet 4.5 | 58s | ~$0.05 | ⚠️ Found power content from multiple chapters |
-| 4 | Degrees of diversification | Claude Sonnet 4.5 | ~20s | ~$0.02 | ⚠️ Found correct topic, different classification |
-
-**Key finding:** Specific, targeted queries work best. Broad queries find relevant content but may pull from the wrong section when topics appear in multiple places.
-
-## How It Works
-
-1. Agent needs to recall something from its past
-2. DeepRecall scans the workspace for memory files
-3. Reads OpenClaw's config to find the user's LLM provider
-4. Auto-pairs a cheap sub-agent model for cost efficiency
-5. Builds a Memory Index — maps topics/people/dates to files
-6. Runs RLM: root agent reads the index first, then navigates to specific files
-7. Returns the answer with source citations
-
-### RLM vs Traditional Approaches
-
-| Feature | RAG / Vector Search | DeepRecall (RLM) |
-|---------|-------------------|------------------|
-| Method | Keyword/vector match | Agent writes code to navigate |
-| Intelligence | Fetch chunks | **Reason** about where memories are |
-| Cross-reference | Limited | Connects dots across files |
-| Structure-aware | No | Reads headers, sections, dates |
-| Infrastructure | Vector DB + embeddings | None — just files |
-| Privacy | Data leaves your machine | Can be fully local |
-| Git-trackable | No | Yes — it's all markdown |
 
 ## Installation
 
 ### Prerequisites
-- [OpenClaw](https://github.com/openclaw/openclaw) installed and configured
-- [fast-rlm](https://github.com/avbiswas/fast-rlm) cloned locally
-- [Deno](https://deno.com) 2+ installed
-- Any LLM provider configured in OpenClaw (Anthropic, OpenAI, Google, OpenRouter, Ollama, etc.)
 
-### Install the Skill
+- Python 3.10+
+- [OpenClaw](https://github.com/openclaw/openclaw) installed and configured
+- Any supported LLM provider (Anthropic, OpenAI, Google, GitHub Copilot, etc.)
+
+### Install
 
 ```bash
-# Clone DeepRecall
-git clone https://github.com/<org>/deep-recall
-cp -r deep-recall/skill ~/.openclaw/workspace/skills/deep-recall
-
-# Clone fast-rlm (the RLM engine)
-git clone https://github.com/avbiswas/fast-rlm.git
-export FAST_RLM_DIR=/path/to/fast-rlm
+clawhub install deep-recall
 ```
 
-> **Note:** DeepRecall auto-patches fast-rlm on first run with fixes for GitHub Copilot authentication and a parser robustness improvement. The original file is backed up as `call_llm.ts.bak`.
+That's it. No Deno, no TypeScript, no external runtimes.
 
 ## Usage
 
 ### From Python
+
 ```python
-from deep_recall import recall
+from deep_recall import recall, recall_quick, recall_deep
 
 # Basic memory query
 result = recall("What did we decide about the project architecture?")
 
-# Quick recall (minimal scope, cheapest)
+# Quick recall — identity scope, cheapest
 result = recall_quick("What is my human's name?")
 
-# Deep recall (all workspace files, most thorough)
+# Deep recall — searches all workspace files
 result = recall_deep("Summarize all decisions we made in the last month")
 
 # Custom options
 result = recall(
     "Find all mentions of budget discussions",
     scope="all",              # "memory", "identity", "project", "all"
-    verbose=True,             # Show RLM execution
+    verbose=True,
     config_overrides={
-        "max_depth": 3,       # Deeper recursion
-        "max_money_spent": 0.50,  # Higher budget
+        "max_depth": 3,
+        "max_money_spent": 0.50,
     }
 )
 ```
 
-### From Command Line
-```bash
-python deep_recall.py "What was the first project we worked on?" memory
+### Scopes
+
+| Scope | Files Included | Speed | Cost | Use Case |
+|-------|---------------|-------|------|----------|
+| `identity` | Soul + mind files | ⚡ Fastest | 💰 Cheapest | "What's my name?" |
+| `memory` | Identity + daily logs | 🔄 Fast | 💰💰 Low | "What did we do last week?" |
+| `project` | All workspace files | 🐢 Slow | 💰💰💰 Medium | "Find that config change" |
+| `all` | Everything | 🐌 Slowest | 💰💰💰💰 High | "Search everything for X" |
+
+## Architecture
+
+DeepRecall v2.0.0 runs a **pure Python RLM loop** with three stages:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  1. MANAGER (LLM call)                                       │
+│     Receives: memory index + user query                      │
+│     Returns:  list of files most likely to contain the answer │
+├──────────────────────────────────────────────────────────────┤
+│  2. WORKERS (parallel LLM calls via ThreadPoolExecutor)      │
+│     Each worker reads one file and extracts exact quotes      │
+│     Anti-hallucination: must return verbatim text only        │
+├──────────────────────────────────────────────────────────────┤
+│  3. SYNTHESIS (LLM call)                                     │
+│     Composes a coherent answer from all extracted quotes      │
+│     Cites sources (filename:line), notes contradictions       │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-## Supported Providers (20+)
+### How a query flows
 
-DeepRecall auto-detects your provider from OpenClaw config. No extra API keys needed.
+1. **Scan** — `MemoryScanner` discovers workspace files and categorizes them (soul, mind, daily-log, long-term)
+2. **Index** — `MemoryIndexer` builds topic → file mappings
+3. **Manager** — LLM selects the most relevant files for the query
+4. **Workers** — Parallel LLM calls extract exact quotes from each file (anti-hallucination prompts enforce verbatim extraction)
+5. **Synthesis** — LLM composes a cited answer from all quotes
+6. **Return** — Human-readable response with `(filename:line)` references
 
-Anthropic, OpenAI, Google (Gemini), GitHub Copilot, OpenRouter, Ollama, DeepSeek, 
-Mistral, Together, Groq, Fireworks, Cohere, Perplexity, SambaNova, Cerebras, xAI, 
-Minimax, Zhipu (GLM), Moonshot (Kimi), Qwen.
+### RLM vs Traditional Approaches
+
+| Feature | RAG / Vector Search | DeepRecall (RLM) |
+|---------|-------------------|------------------|
+| Method | Keyword/vector match | Agent reasons about file structure |
+| Cross-reference | Limited | Connects dots across files |
+| Structure-aware | No | Reads headers, sections, dates |
+| Infrastructure | Vector DB + embeddings | None — just files |
+| Privacy | Data may leave your machine | Can be fully local |
+| Git-trackable | No | Yes — it's all markdown |
+
+## Provider Auto-Detection
+
+DeepRecall reads your OpenClaw config and **automatically detects** your LLM provider. No extra API keys to configure.
+
+### Resolution order
+
+1. Read primary model from `~/.openclaw/openclaw.json`
+2. Detect provider from model prefix (e.g. `anthropic/claude-opus-4` → Anthropic)
+3. Resolve API key: OpenClaw config → environment variable → credential files
+4. For GitHub Copilot: reads token from `~/.openclaw/credentials/github-copilot.token.json` with expiry checking
+
+### Supported Providers (20+)
+
+| Provider | Env Variable | Notes |
+|----------|-------------|-------|
+| **OpenClaw** | *(from config)* | Primary config source |
+| **Anthropic** | `ANTHROPIC_API_KEY` | Claude models |
+| **Google / Gemini** | `GOOGLE_API_KEY` | Gemini models |
+| **OpenAI** | `OPENAI_API_KEY` | GPT models |
+| **GitHub Copilot** | *(token file)* | Auto-token with expiry check |
+| OpenRouter | `OPENROUTER_API_KEY` | Multi-provider gateway |
+| DeepSeek | `DEEPSEEK_API_KEY` | |
+| Mistral | `MISTRAL_API_KEY` | |
+| Together | `TOGETHER_API_KEY` | |
+| Groq | `GROQ_API_KEY` | |
+| Fireworks | `FIREWORKS_API_KEY` | |
+| Ollama | *(none)* | Local models on `localhost:11434` |
+| + 8 more | | Cohere, Perplexity, SambaNova, Cerebras, xAI, Minimax, Zhipu, Moonshot |
 
 ### Auto Model Pairing
 
 Your primary model orchestrates. A cheaper model handles file reading:
 
-| Your Primary Model | Sub-agent Model |
+| Your Primary Model | Sub-agent (Worker) Model |
 |---|---|
 | Claude Opus 4.6 | Claude Sonnet 4.6 |
 | Claude Sonnet 4.5 | Claude Haiku 4.5 |
@@ -198,11 +170,12 @@ Your primary model orchestrates. A cheaper model handles file reading:
 | Llama 3.3 70B | Llama 3.3 8B |
 | DeepSeek R1 | DeepSeek V3 |
 
-Override both models via `config_overrides`.
+40+ model pairs supported. Override via `config_overrides`.
 
 ## Configuration
 
 ### Default Settings
+
 ```yaml
 max_depth: 2              # Memory → File → Section
 max_calls_per_subagent: 10
@@ -218,38 +191,25 @@ DeepRecall understands the standard OpenClaw workspace layout:
 
 ```
 ~/.openclaw/workspace/
-├── SOUL.md            # [soul] Agent identity — always in context
-├── IDENTITY.md        # [soul] Core facts about the agent
-├── MEMORY.md          # [index] Compact orientation + topic index (~100 lines)
-│                      #         Auto-loaded every session. Stays SMALL.
-├── USER.md            # [mind] About the human
-├── AGENTS.md          # [mind] Agent behavior rules
-├── TOOLS.md           # [mind] Tool-specific notes
-└── memory/            # [long-term + daily logs]
-    ├── LONG_TERM.md   # [long-term] Full detailed memories — grows forever
-    │                  #             Searched via DeepRecall, never loaded wholesale
-    ├── 2026-02-24.md  # [daily-log] Raw log for that day
+├── SOUL.md            # Agent identity — always in context
+├── IDENTITY.md        # Core facts about the agent
+├── MEMORY.md          # Compact orientation + topic index (~100 lines)
+├── USER.md            # About the human
+├── AGENTS.md          # Agent behavior rules
+├── TOOLS.md           # Tool-specific notes
+└── memory/
+    ├── LONG_TERM.md   # Full detailed memories — grows forever
+    ├── 2026-02-24.md  # Daily log
     ├── 2026-02-25.md
     └── ...
 ```
 
-### The Three-Tier Memory Architecture
+### Three-Tier Memory Model
 
-This is the pattern we use ourselves (dogfooding!):
+1. **MEMORY.md (Index)** — Auto-loaded every session. Topic → file index. Stays under ~120 lines.
+2. **memory/LONG_TERM.md (Full Memories)** — Everything important. Grows forever, never deleted. Searched via RLM.
+3. **memory/YYYY-MM-DD.md (Daily Logs)** — Raw notes per day. End of day, distill into LONG_TERM.md.
 
-1. **MEMORY.md (Index)** — Auto-loaded every session. Contains essential context
-   (who your human is, active projects, key metrics) and a topic→file index table.
-   Think of it as a table of contents. Stays under ~120 lines.
-
-2. **memory/LONG_TERM.md (Full Memories)** — Everything important that happened.
-   Architecture decisions, build logs, conversations, moments worth keeping.
-   Grows forever (never delete entries). Searched via DeepRecall when needed.
-
-3. **memory/YYYY-MM-DD.md (Daily Logs)** — Raw notes from each day. End of day,
-   distill important bits into LONG_TERM.md. Update MEMORY.md index only when
-   new topics appear.
-
-**The flow:**
 ```
 Session starts → MEMORY.md auto-loads (small, orientation)
 Need specifics → DeepRecall searches LONG_TERM.md + daily files
@@ -257,71 +217,43 @@ During the day → Write raw logs to daily file
 End of day    → Distill → LONG_TERM.md, update index if needed
 ```
 
-This is the Anamnesis Architecture in practice: the soul stays small,
-the mind scales forever.
+## What It Can Do
 
-## Scopes
+- **Recall specific facts** from months of conversation logs
+- **Synthesize across files** — connects information from daily logs, project docs, and memory files
+- **Navigate large document collections** — tested on 800-page textbook (59 files, 2.9MB) in 7–15 seconds
+- **Auto-detect your LLM provider** — works with 20+ providers out of the box
+- **Anti-hallucination** — workers extract verbatim quotes; synthesis cites sources
+- **Cost-efficient** — cheap sub-agent models for file reading ($0.005–$0.15 per query)
+- **Zero infrastructure** — no vector database, no embeddings, no external runtime. Just markdown + an LLM
 
-| Scope | Files Included | Speed | Cost | Use Case |
-|-------|---------------|-------|------|----------|
-| `identity` | Soul + mind files | ⚡ Fastest | 💰 Cheapest | "What's my name?" |
-| `memory` | Identity + daily logs | 🔄 Fast | 💰💰 Low | "What did we do last week?" |
-| `project` | All workspace files | 🐢 Slow | 💰💰💰 Medium | "Find that config change" |
-| `all` | Everything | 🐌 Slowest | 💰💰💰💰 High | "Search everything for X" |
+## Limitations
+
+- **Query specificity matters** — broad queries may pull from the wrong section. Specific queries nail it
+- **Not instant** — 7–90 seconds per query depending on depth and provider
+- **Costs tokens** — cheap ($0.005–$0.15), but not free
+- **LLMs can still hallucinate** — better prompts = better accuracy
+- **Best with unique content** — personal memory files work great; generic/academic content is harder
 
 ## The Anamnesis Architecture
 
-> *Anamnesis (Greek: ἀνάμνησις)* — "recollection" or "remembering." In Platonic 
-> philosophy, the idea that the soul possesses knowledge from before birth, 
-> and learning is really the process of remembering what the soul already knows.
+> *Anamnesis (Greek: ἀνάμνησις)* — "recollection." In Platonic philosophy, the
+> idea that learning is really the process of remembering what the soul already knows.
 
-DeepRecall implements the Anamnesis Architecture for AI agents:
-
-1. **The Soul** (small, fixed) — Who the agent IS. Always present in context. 
-   Never sacrificed for memory.
-
-2. **The Index** (small, auto-loaded) — MEMORY.md. Compact orientation that tells 
-   the agent what exists and where to find it. Like a table of contents for the mind.
-
-3. **The Mind** (infinite, external) — What the agent KNOWS. Stored in LONG_TERM.md 
-   + daily files. Grows forever. Accessed through recursive queries.
-
-4. **The Bridge** (RLM) — How Soul accesses Mind. Not a database lookup — 
-   the agent *reasons* about where to find memories and synthesizes answers.
-
-## The Compounding Intelligence Hypothesis
-
-> *"Does persistent memory make AI agents objectively better at their job?"*
-
-We hypothesize that an AI agent with accumulated personal context — decisions, 
-preferences, work history, communication style — produces **higher-quality, more 
-relevant outputs** than the same agent without that context.
-
-This means:
-- The agent gets **better the longer it works with you**
-- Every interaction adds to its understanding of your preferences and patterns
-- After months of collaboration, the agent doesn't just remember facts — it 
-  understands your tendencies, anticipates your needs, and produces work that 
-  matches YOUR style
-
-This isn't just a feature — it's a **compounding advantage** that grows over time.
-Current AI tools treat every session as a fresh start. DeepRecall enables the 
-agent-human relationship to actually develop.
+1. **The Soul** (small, fixed) — Who the agent IS. Always in context, never sacrificed.
+2. **The Index** (small, auto-loaded) — MEMORY.md. A table of contents for the mind.
+3. **The Mind** (infinite, external) — What the agent KNOWS. Grows forever.
+4. **The Bridge** (RLM) — The agent *reasons* about where to find memories and synthesizes answers.
 
 See `docs/anamnesis-architecture.md` for the full theoretical framework.
 
 ## Contributing
 
-Contributions welcome! Key areas:
-- Adding provider support
-- Improving memory navigation prompts
-- Performance optimization
-- New scope strategies
-- Documentation and examples
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and guidelines.
+
+Key areas: provider support, memory navigation prompts, performance, new scope strategies.
 
 ## Citation
-
-If you use DeepRecall or the Anamnesis Architecture in academic work:
 
 ```bibtex
 @software{deeprecall2026,
@@ -335,11 +267,10 @@ If you use DeepRecall or the Anamnesis Architecture in academic work:
 
 ## License
 
-MIT License — see [LICENSE](LICENSE).
+MIT License © 2026 Stefan Chitez & Crick — see [LICENSE](LICENSE).
 
 ## Acknowledgments
 
 - [RLM](https://github.com/alexzhang13/rlm) by Alex Zhang (MIT OASYS Lab) — the recursive language model framework
-- [fast-rlm](https://github.com/avbiswas/fast-rlm) by avbiswas — sandboxed RLM implementation
 - [OpenClaw](https://github.com/openclaw/openclaw) — the AI agent platform
 - Built by a human and his AI cat, proving that the best partnerships don't require the same species 🐱

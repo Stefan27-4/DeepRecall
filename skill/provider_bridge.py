@@ -1,11 +1,11 @@
 """
-Provider Bridge — Reads OpenClaw's configuration to resolve API keys, 
+Provider Bridge — Reads OpenClaw's configuration to resolve API keys,
 base URLs, and model settings for RLM.
 
 Supports all major OpenClaw providers:
 - Anthropic (API key or setup-token)
 - OpenAI (API key)
-- Google / Gemini (API key)
+- Google / Gemini (API key, including native Gemini API)
 - GitHub Copilot (OAuth token)
 - OpenRouter (API key)
 - Ollama / local models
@@ -15,13 +15,15 @@ The bridge reads from:
 1. OpenClaw config: ~/.openclaw/openclaw.json
 2. Auth profiles: ~/.openclaw/agents/main/agent/auth-profiles.json
 3. Model config: ~/.openclaw/agents/main/agent/models.json
-4. Credentials: ~/.openclaw/credentials/
+4. Credentials: derived from config or ~/.openclaw/credentials/
 5. Environment variables (fallback)
 """
 
 import json
 import os
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -32,6 +34,9 @@ CONFIG_FILE = OPENCLAW_DIR / "openclaw.json"
 AUTH_PROFILES_FILE = OPENCLAW_DIR / "agents" / "main" / "agent" / "auth-profiles.json"
 MODELS_FILE = OPENCLAW_DIR / "agents" / "main" / "agent" / "models.json"
 CREDENTIALS_DIR = OPENCLAW_DIR / "credentials"
+
+# Gemini native API base
+GEMINI_NATIVE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 # Provider → OpenAI-compatible base URL mapping
 PROVIDER_BASE_URLS = {
@@ -83,20 +88,29 @@ PROVIDER_ENV_KEYS = {
 
 class ProviderConfig:
     """Resolved provider configuration for RLM."""
-    
-    def __init__(self, provider: str, api_key: str, base_url: str, 
+
+    def __init__(self, provider: str, api_key: str, base_url: str,
                  primary_model: str, default_headers: Optional[dict] = None):
         self.provider = provider
         self.api_key = api_key
         self.base_url = base_url
         self.primary_model = primary_model
         self.default_headers = default_headers or {}
-    
+
     def __repr__(self):
-        key_preview = self.api_key[:10] + "..." if self.api_key else "None"
+        if not self.api_key:
+            key_preview = "[NOT SET]"
+        elif len(self.api_key) > 12:
+            key_preview = self.api_key[:8] + "..." + self.api_key[-4:]
+        else:
+            key_preview = self.api_key[:8] + "..."
         return (f"ProviderConfig(provider={self.provider}, key={key_preview}, "
                 f"base_url={self.base_url}, model={self.primary_model})")
 
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
 def _load_json(path: Path) -> dict:
     """Safely load a JSON file, returning empty dict on failure."""
@@ -135,35 +149,45 @@ def _get_api_key_from_env(provider: str) -> Optional[str]:
 
 def _get_api_key_from_config(config: dict, provider: str) -> Optional[str]:
     """Try to get API key from OpenClaw config (env section or provider config)."""
-    # Check env section
     env_section = config.get("env", {})
     env_key = PROVIDER_ENV_KEYS.get(provider)
     if env_key and env_key in env_section:
         return env_section[env_key]
-    
-    # Check provider-specific config
+
     providers = config.get("models", {}).get("providers", {})
     provider_conf = providers.get(provider, {})
     return provider_conf.get("apiKey")
 
 
-def _get_copilot_token() -> Optional[str]:
-    """Read GitHub Copilot API token from OpenClaw credential store."""
-    token_file = CREDENTIALS_DIR / "github-copilot.token.json"
+def _get_copilot_token(openclaw_config: Optional[dict] = None) -> Optional[str]:
+    """Read GitHub Copilot API token, deriving credentials path from config."""
     try:
+        config = openclaw_config if openclaw_config is not None else _load_json(CONFIG_FILE)
+
+        # Derive credentials directory from config, fall back to module default
+        creds_dir_override = config.get("credentialsDir")
+        creds_dir = Path(creds_dir_override) if creds_dir_override else CREDENTIALS_DIR
+
+        token_file = creds_dir / "github-copilot.token.json"
         if not token_file.exists():
             return None
-        
+
         with open(token_file) as f:
             data = json.load(f)
-        
+
         token = data.get("token")
         expires_at = data.get("expiresAt", 0)
-        
-        # Check expiry (milliseconds)
-        if expires_at and time.time() * 1000 > expires_at:
-            return None
-        
+
+        if expires_at:
+            now = time.time()
+            # Auto-detect seconds vs milliseconds
+            if expires_at > 1e12:
+                expired = now * 1000 > expires_at
+            else:
+                expired = now > expires_at
+            if expired:
+                return None
+
         return token
     except Exception:
         return None
@@ -171,35 +195,242 @@ def _get_copilot_token() -> Optional[str]:
 
 def _get_base_url(provider: str, models_config: dict) -> str:
     """Get base URL for a provider, checking models.json first."""
-    # Check models.json for custom base URL
     providers = models_config.get("providers", {})
     provider_conf = providers.get(provider, {})
     custom_url = provider_conf.get("baseUrl") or provider_conf.get("baseURL")
     if custom_url:
         return custom_url
-    
-    # Fall back to known defaults
-    return PROVIDER_BASE_URLS.get(provider, "https://openrouter.ai/api/v1")
 
+    if provider not in PROVIDER_BASE_URLS:
+        raise ValueError(
+            f"Unknown provider '{provider}'. Configure a baseUrl in models.json "
+            f"or use a known provider: {', '.join(sorted(PROVIDER_BASE_URLS))}."
+        )
+
+    return PROVIDER_BASE_URLS[provider]
+
+
+# ---------------------------------------------------------------------------
+# HTTP / LLM request functions
+# ---------------------------------------------------------------------------
+
+def make_request(url: str, headers: dict, body: dict,
+                 timeout: int = 60) -> dict:
+    """
+    Send a JSON POST request and return the parsed response.
+
+    Args:
+        url: The endpoint URL.
+        headers: HTTP headers dict.
+        body: JSON-serializable request body.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Parsed JSON response as a dict.
+
+    Raises:
+        RuntimeError: On HTTP errors or connection failures.
+    """
+    data = json.dumps(body).encode("utf-8")
+    merged_headers = {**headers, "Content-Type": "application/json"}
+    req = urllib.request.Request(url, data=data, headers=merged_headers,
+                                method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"LLM request failed ({e.code}): {error_body}"
+        ) from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(
+            f"LLM request connection error: {e.reason}"
+        ) from e
+
+
+def make_gemini_native_request(config: ProviderConfig, messages: list[dict],
+                               temperature: float = 0.7,
+                               max_tokens: int = 1024) -> dict:
+    """
+    Call Gemini using its native REST API (not OpenAI-compatible).
+
+    Converts OpenAI-style messages to Gemini format and calls
+    the ``generateContent`` endpoint directly.
+
+    Args:
+        config: A ProviderConfig for a Google/Gemini provider.
+        messages: OpenAI-style messages (role/content dicts).
+        temperature: Sampling temperature.
+        max_tokens: Maximum output tokens.
+
+    Returns:
+        Raw Gemini API response dict.
+    """
+    model_name = config.primary_model
+    if "/" in model_name:
+        model_name = model_name.split("/", 1)[1]
+
+    url = (f"{GEMINI_NATIVE_URL}/models/{model_name}:generateContent"
+           f"?key={config.api_key}")
+
+    contents: list[dict] = []
+    system_instruction = None
+    for msg in messages:
+        role = msg.get("role", "user")
+        text = msg.get("content", "")
+        if role == "system":
+            system_instruction = {"parts": [{"text": text}]}
+        else:
+            gemini_role = "model" if role == "assistant" else "user"
+            contents.append({"role": gemini_role, "parts": [{"text": text}]})
+
+    body: dict = {
+        "contents": contents,
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens,
+        },
+    }
+    if system_instruction:
+        body["systemInstruction"] = system_instruction
+
+    return make_request(url, {}, body)
+
+
+def call_llm(messages: list[dict],
+             config: Optional[ProviderConfig] = None,
+             temperature: float = 0.7,
+             max_tokens: int = 1024,
+             native_gemini: bool = False) -> str:
+    """
+    High-level function to call an LLM provider.
+
+    Automatically resolves the provider if *config* is not supplied,
+    and routes to the correct API format (OpenAI-compatible, Anthropic
+    native, or Gemini native).
+
+    Args:
+        messages: List of message dicts with ``role`` and ``content`` keys.
+        config: ProviderConfig (resolved automatically if *None*).
+        temperature: Sampling temperature.
+        max_tokens: Maximum tokens to generate.
+        native_gemini: If *True* and provider is ``google``, use the Gemini
+            native REST API instead of the OpenAI-compatible wrapper.
+
+    Returns:
+        The assistant's response text.
+    """
+    if config is None:
+        config = resolve_provider()
+
+    # Gemini native path
+    if config.provider == "google" and native_gemini:
+        result = make_gemini_native_request(
+            config, messages, temperature=temperature, max_tokens=max_tokens,
+        )
+        candidates = result.get("candidates", [])
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            if parts:
+                return parts[0].get("text", "")
+        return ""
+
+    # Anthropic native path
+    if config.provider == "anthropic":
+        return _call_anthropic(config, messages, temperature, max_tokens)
+
+    # OpenAI-compatible path (default)
+    return _call_openai_compatible(config, messages, temperature, max_tokens)
+
+
+def _call_anthropic(config: ProviderConfig, messages: list[dict],
+                    temperature: float, max_tokens: int) -> str:
+    """Call Anthropic Messages API."""
+    model_name = config.primary_model
+    if "/" in model_name:
+        model_name = model_name.split("/", 1)[1]
+
+    url = f"{config.base_url}/messages"
+    headers = {
+        "x-api-key": config.api_key,
+        "anthropic-version": "2023-06-01",
+        **config.default_headers,
+    }
+
+    system_text = None
+    filtered: list[dict] = []
+    for msg in messages:
+        if msg.get("role") == "system":
+            system_text = msg.get("content", "")
+        else:
+            filtered.append(msg)
+
+    body: dict = {
+        "model": model_name,
+        "messages": filtered,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if system_text:
+        body["system"] = system_text
+
+    result = make_request(url, headers, body)
+    for block in result.get("content", []):
+        if block.get("type") == "text":
+            return block.get("text", "")
+    return ""
+
+
+def _call_openai_compatible(config: ProviderConfig, messages: list[dict],
+                            temperature: float, max_tokens: int) -> str:
+    """Call an OpenAI-compatible chat completions endpoint."""
+    model_name = config.primary_model
+    if "/" in model_name:
+        model_name = model_name.split("/", 1)[1]
+
+    url = f"{config.base_url}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {config.api_key}",
+        **config.default_headers,
+    }
+
+    body = {
+        "model": model_name,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    result = make_request(url, headers, body)
+    choices = result.get("choices", [])
+    if choices:
+        return choices[0].get("message", {}).get("content", "")
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Main resolver
+# ---------------------------------------------------------------------------
 
 def resolve_provider() -> ProviderConfig:
     """
     Resolve the current OpenClaw provider configuration.
-    
+
     Reads OpenClaw config files to determine:
     1. What provider/model the user has configured
     2. Where to find the API key
     3. What base URL to use
-    
+
     Returns:
         ProviderConfig with all fields populated
-    
+
     Raises:
         RuntimeError: If no valid provider configuration can be resolved
     """
     config = _load_json(CONFIG_FILE)
     models_config = _load_json(MODELS_FILE)
-    
+
     # Step 1: Find primary model
     primary_model = _get_primary_model(config)
     if not primary_model:
@@ -207,7 +438,7 @@ def resolve_provider() -> ProviderConfig:
             "No primary model configured in OpenClaw. "
             "Run 'openclaw onboard' to set up a provider."
         )
-    
+
     # Step 2: Determine provider
     provider = _get_provider_from_model(primary_model)
     if not provider:
@@ -215,20 +446,18 @@ def resolve_provider() -> ProviderConfig:
             f"Cannot determine provider from model '{primary_model}'. "
             "Expected format: 'provider/model-name'."
         )
-    
+
     # Step 3: Get API key (try multiple sources)
     api_key = None
     default_headers = {}
-    
+
     if provider == "github-copilot":
-        api_key = _get_copilot_token()
+        api_key = _get_copilot_token(openclaw_config=config)
         if not api_key:
             raise RuntimeError(
                 "GitHub Copilot token expired or not found. "
                 "Run 'openclaw models auth login-github-copilot' to refresh."
             )
-        # Copilot needs special headers — but for open-source we note this
-        # is auto-detected, not hardcoded
         default_headers = {
             "Editor-Version": "vscode/1.107.0",
             "Editor-Plugin-Version": "copilot-chat/0.35.0",
@@ -238,22 +467,21 @@ def resolve_provider() -> ProviderConfig:
     elif provider == "ollama":
         api_key = "ollama-local"  # Ollama doesn't need a real key
     else:
-        # Try: environment → config env section → provider config → auth profiles
         api_key = (
             _get_api_key_from_env(provider) or
             _get_api_key_from_config(config, provider)
         )
-    
+
     if not api_key:
         env_var = PROVIDER_ENV_KEYS.get(provider, f"{provider.upper()}_API_KEY")
         raise RuntimeError(
             f"No API key found for provider '{provider}'. "
             f"Set {env_var} environment variable or configure it in OpenClaw."
         )
-    
+
     # Step 4: Get base URL
     base_url = _get_base_url(provider, models_config)
-    
+
     return ProviderConfig(
         provider=provider,
         api_key=api_key,
@@ -265,12 +493,18 @@ def resolve_provider() -> ProviderConfig:
 
 if __name__ == "__main__":
     try:
-        config = resolve_provider()
-        print(f"✅ Provider resolved: {config}")
-        print(f"   Provider:  {config.provider}")
-        print(f"   Base URL:  {config.base_url}")
-        print(f"   Model:     {config.primary_model}")
-        print(f"   Key:       {config.api_key[:15]}...")
-        print(f"   Headers:   {list(config.default_headers.keys()) if config.default_headers else 'none'}")
+        cfg = resolve_provider()
+        print(f"✅ Provider resolved: {cfg}")
+        print(f"   Provider:  {cfg.provider}")
+        print(f"   Base URL:  {cfg.base_url}")
+        print(f"   Model:     {cfg.primary_model}")
+        if cfg.api_key:
+            masked = (cfg.api_key[:8] + "..." + cfg.api_key[-4:]
+                      if len(cfg.api_key) > 12
+                      else cfg.api_key[:8] + "...")
+        else:
+            masked = "[NOT SET]"
+        print(f"   Key:       {masked}")
+        print(f"   Headers:   {list(cfg.default_headers.keys()) if cfg.default_headers else 'none'}")
     except RuntimeError as e:
         print(f"❌ {e}")

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-03-06
+
+### Added
+
+- Sandboxed tool execution environment for safe skill invocation
+- Path traversal protection to prevent directory escape in file-based tools
+- Gemini native support (Gemini 2.5/3 via Google GenAI SDK, no proxy required)
+- Threaded worker pool via `ThreadPoolExecutor` for parallel skill execution
+
+### Changed
+
+- Rewrote core engine: replaced Deno/fast-rlm subprocess with pure Python RLM loop
+- Anti-hallucination prompts: workers quote source material exactly; synthesis step cites sources inline
+
+### Removed
+
+- Deno/fast-rlm dependency and associated TypeScript runtime
+
 ## [0.2.0] - 2026-03-05
 
 ### Changed
