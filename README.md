@@ -299,3 +299,4 @@ MIT License © 2026 Stefan Chitez & Crick — see [LICENSE](LICENSE).
 - [RLM](https://github.com/alexzhang13/rlm) by Alex Zhang (MIT OASYS Lab) — the recursive language model framework
 - [OpenClaw](https://github.com/openclaw/openclaw) — the AI agent platform
 - Built by a human and his AI cat, proving that the best partnerships don't require the same species 🐱
+- and last but not least, - [fast-rlm](https://github.com/avbiswas/fast-rlm) by avbiswas — thank you for the deep dive on RLM implementation!
