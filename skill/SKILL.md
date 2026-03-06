@@ -1,6 +1,6 @@
 ---
 name: deep-recall
-version: 1.0.4
+version: 1.0.8
 description: Pure-Python recursive memory recall for persistent AI agents. Manager→workers→synthesis RLM loop — no Deno, no fast-rlm, just HTTP calls to any OpenAI-compatible LLM.
 metadata: {"openclaw": {"requires": {"env": ["ANTHROPIC_API_KEY (optional)", "OPENAI_API_KEY (optional)", "GOOGLE_API_KEY (optional)", "OPENROUTER_API_KEY (optional)", "DEEPSEEK_API_KEY (optional)", "MISTRAL_API_KEY (optional)", "TOGETHER_API_KEY (optional)", "GROQ_API_KEY (optional)", "FIREWORKS_API_KEY (optional)", "COHERE_API_KEY (optional)", "PERPLEXITY_API_KEY (optional)", "SAMBANOVA_API_KEY (optional)", "CEREBRAS_API_KEY (optional)", "XAI_API_KEY (optional)", "MINIMAX_API_KEY (optional)", "ZHIPU_API_KEY (optional)", "MOONSHOT_API_KEY (optional)", "DASHSCOPE_API_KEY (optional)"], "config_paths": ["~/.openclaw/openclaw.json", "~/.openclaw/agents/*/agent/models.json", "~/.openclaw/credentials/*"]}, "homepage": "https://github.com/Stefan27-4/DeepRecall"}}
 ---
