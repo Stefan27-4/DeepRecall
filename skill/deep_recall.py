@@ -124,6 +124,9 @@ _SYNTHESIS_SYSTEM = (
     "that is not supported by the quotes.\n"
     "2. Cite your sources using the format (filename:line).\n"
     "3. If quotes are contradictory, note the discrepancy.\n"
+    "4. Prefer detailed answers from LONG_TERM.md over summaries from MEMORY.md. "
+    "Include the full story - decisions, reasoning, timestamps. "
+    "Don't give the Wikipedia summary, give the diary entry.\n"
     "4. If the quotes do not answer the question, say so honestly.\n"
 )
 
@@ -131,6 +134,10 @@ _MANAGER_SYSTEM = (
     "You are a memory-file selector. You receive a Memory Index that "
     "describes the user's memory files and a query. Your job is to select "
     "the files most likely to contain the answer.\n\n"
+    "PRIORITY RULE: ALWAYS include memory/LONG_TERM.md if it exists in the index. "
+    "LONG_TERM.md contains detailed memories with full context, decisions, "
+    "and reasoning. MEMORY.md is just a summary index. The devil is in the "
+    "details — prefer LONG_TERM.md for complete answers.\n\n"
     "Respond with JSON: {\"files\": [\"path/to/file1.md\", ...]}\n"
     "Select only the most relevant files. Return at most {max_files} files.\n"
     "If no files seem relevant, return {\"files\": []}."
