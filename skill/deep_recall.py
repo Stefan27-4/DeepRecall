@@ -34,18 +34,28 @@ from pathlib import Path
 from typing import Any, Optional
 
 # ---------------------------------------------------------------------------
-# Ensure skill modules are importable
+# Package imports — prefer relative (package), fall back for direct script use
 # ---------------------------------------------------------------------------
-SKILL_DIR = Path(__file__).parent
-if str(SKILL_DIR) not in sys.path:
-    sys.path.insert(0, str(SKILL_DIR))
-
-from provider_bridge import resolve_provider, ProviderConfig  # noqa: E402
-from model_pairs import get_model_pair  # noqa: E402
-from memory_scanner import MemoryScanner  # noqa: E402
-from memory_indexer import build_memory_index, update_memory_index  # noqa: E402
+try:
+    from .provider_bridge import resolve_provider, ProviderConfig
+    from .model_pairs import get_model_pair
+    from .memory_scanner import MemoryScanner
+    from .memory_indexer import build_memory_index, update_memory_index
+except ImportError:
+    # Fallback: running as a standalone script (python skill/deep_recall.py)
+    _SKILL_DIR = Path(__file__).parent
+    if str(_SKILL_DIR) not in sys.path:
+        sys.path.insert(0, str(_SKILL_DIR))
+    from provider_bridge import resolve_provider, ProviderConfig  # type: ignore[no-redef]
+    from model_pairs import get_model_pair  # type: ignore[no-redef]
+    from memory_scanner import MemoryScanner  # type: ignore[no-redef]
+    from memory_indexer import build_memory_index, update_memory_index  # type: ignore[no-redef]
 
 logger = logging.getLogger("deep_recall")
+
+# Maximum number of manager→workers→synthesis rounds.
+# Kept at 1 to prevent runaway recursion; raise only with explicit intent.
+_MAX_TOOL_ROUNDS: int = 1
 
 # ---------------------------------------------------------------------------
 # HTTP client — prefer httpx, fall back to requests
@@ -159,7 +169,7 @@ def _chat(
     if json_mode:
         body["response_format"] = {"type": "json_object"}
 
-    data = _http_post(url, headers=headers, json_body=body)
+    data = _http_post(url, headers=headers, json_body=body, timeout=120.0)
 
     choices = data.get("choices", [])
     if not choices:
@@ -168,22 +178,62 @@ def _chat(
 
 
 # ---------------------------------------------------------------------------
-# Sandboxed file reading (path-traversal protection)
+# Path safety and sandboxed file reading (path-traversal protection)
 # ---------------------------------------------------------------------------
 
-def _read_file(relative_path: str, workspace: Path) -> Optional[str]:
-    """Read a file safely within *workspace*; returns None on failure."""
+def _safe_path(relative_path: str, workspace: Path) -> Optional[Path]:
+    """Resolve *relative_path* inside *workspace*.
+
+    Returns the resolved ``Path`` when it is strictly contained within
+    *workspace*, or ``None`` if the path would escape the workspace
+    (directory traversal, symlink escape, or absolute path injection).
+    """
     try:
         target = (workspace / relative_path).resolve()
         ws_resolved = workspace.resolve()
-        # Block path traversal
+        # target must be either exactly the workspace root or a child of it
         if not str(target).startswith(str(ws_resolved) + os.sep) and target != ws_resolved:
             return None
-        if not target.is_file():
-            return None
-        return target.read_text(errors="replace")
+        return target
     except Exception:
         return None
+
+
+def _read_file(relative_path: str, workspace: Path) -> Optional[str]:
+    """Read a file safely within *workspace*; returns None on failure."""
+    path = _safe_path(relative_path, workspace)
+    if path is None or not path.is_file():
+        return None
+    try:
+        return path.read_text(errors="replace")
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Tool-code sandbox (execution guard)
+# ---------------------------------------------------------------------------
+
+def _execute_tool_code(code: str, sandbox: dict) -> str:
+    """Sandbox boundary for any tool-code execution requests.
+
+    Arbitrary code execution is **not** permitted.  This function exists as
+    an explicit security boundary so that any future call-site is forced to
+    go through a named choke-point rather than using ``eval``/``exec``
+    directly.
+
+    Args:
+        code: The code string that was requested to run.
+        sandbox: Any contextual bindings that would have been available.
+
+    Returns:
+        A refusal message — execution never proceeds.
+    """
+    logger.warning(
+        "_execute_tool_code called; code execution is disabled (sandbox). "
+        "code_snippet=%r", code[:120]
+    )
+    return "[sandbox] Code execution is not permitted in this environment."
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +364,7 @@ def recall(
     workspace: Optional[Path] = None,
     verbose: bool = False,
     config_overrides: Optional[dict] = None,
+    max_depth: int = 1,
 ) -> str:
     """
     Recursively query the agent's memory using a pure-Python RLM loop.
@@ -332,12 +383,17 @@ def recall(
         workspace: Override workspace path (default: auto-detect).
         verbose: Print progress to stdout.
         config_overrides: Override settings (``max_files``, etc.).
+        max_depth: Number of manager→workers→synthesis rounds to run.
+            Must be >= 1; capped at ``_MAX_TOOL_ROUNDS`` (currently 1).
+            Default is 1 (single pass).
 
     Returns:
         The recalled information as a string.
     """
     overrides = config_overrides or {}
     max_files = overrides.get("max_files", _DEFAULT_MAX_FILES)
+    # Enforce depth bounds: minimum 1, never exceed _MAX_TOOL_ROUNDS.
+    max_depth = max(1, min(max_depth, _MAX_TOOL_ROUNDS))
 
     # 1. Resolve provider
     try:
