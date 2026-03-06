@@ -73,8 +73,7 @@ result = recall(
     scope="all",              # "memory", "identity", "project", "all"
     verbose=True,
     config_overrides={
-        "max_depth": 3,
-        "max_money_spent": 0.50,
+        "max_files": 5,       # max files the manager can select (default: 3)
     }
 )
 ```
@@ -163,26 +162,29 @@ Your primary model orchestrates. A cheaper model handles file reading:
 
 | Your Primary Model | Sub-agent (Worker) Model |
 |---|---|
-| Claude Opus 4.6 | Claude Sonnet 4.6 |
-| Claude Sonnet 4.5 | Claude Haiku 4.5 |
-| GPT-4o / GPT-4.1 | GPT-4o-mini / GPT-4.1-mini |
-| Gemini 3.1 Pro | Gemini 3 Flash |
-| Llama 3.3 70B | Llama 3.3 8B |
-| DeepSeek R1 | DeepSeek V3 |
+| Claude Opus 4 / Opus 4.6 | Claude Sonnet 4 |
+| Claude Sonnet 4 / 4.5 | Claude Haiku 3.5 |
+| GPT-4o / GPT-4 / GPT-4-Turbo | GPT-4o-mini |
+| GPT-5 | GPT-5 mini |
+| Gemini 2.5 Pro | Gemini 2.0 Flash |
+| DeepSeek Reasoner | DeepSeek Chat |
+| Llama 3.1 70B | Llama 3.1 8B |
 
-40+ model pairs supported. Override via `config_overrides`.
+20+ model pairs supported. Override via `config_overrides`.
 
 ## Configuration
 
 ### Default Settings
 
 ```yaml
-max_depth: 2              # Memory → File → Section
-max_calls_per_subagent: 10
-max_money_spent: 0.25     # 25 cents per query
-max_completion_tokens: 30000
-max_prompt_tokens: 200000
-api_timeout_ms: 120000    # 2 minutes
+max_files: 3              # Max files the manager can select per query
+timeout: 120              # HTTP timeout in seconds per LLM call
+```
+
+Override any setting via `config_overrides`:
+
+```python
+result = recall("query", config_overrides={"max_files": 5})
 ```
 
 ## Memory File Structure
@@ -258,7 +260,7 @@ Key areas: provider support, memory navigation prompts, performance, new scope s
 ```bibtex
 @software{deeprecall2026,
   title={DeepRecall: Recursive Memory for Persistent AI Agents},
-  author={Chitez, Daniel-Stefan and Crick},
+  author={Chitez, Stefan and Crick},
   year={2026},
   url={https://github.com/Stefan27-4/DeepRecall},
   note={Implements the Anamnesis Architecture for AI agent memory persistence}
