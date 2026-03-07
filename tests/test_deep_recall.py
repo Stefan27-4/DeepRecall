@@ -128,6 +128,63 @@ class TestManagerCall:
             files = _manager_call("query", "index", 3, provider)
         assert files == []
 
+    def test_handles_json_in_markdown_fence(self):
+        provider = _mock_provider()
+        wrapped = '```json\n{"files": ["memory/log.md"]}\n```'
+        with patch("skill.deep_recall._chat", return_value=wrapped):
+            files = _manager_call("query", "index", 3, provider)
+        assert files == ["memory/log.md"]
+
+    def test_handles_json_with_leading_text(self):
+        provider = _mock_provider()
+        raw = 'Here is the JSON:\n{"files": ["a.md"]}'
+        with patch("skill.deep_recall._chat", return_value=raw):
+            files = _manager_call("query", "index", 3, provider)
+        assert files == ["a.md"]
+
+
+# ---------------------------------------------------------------------------
+# _sanitize_json
+# ---------------------------------------------------------------------------
+
+class TestSanitizeJson:
+    def test_clean_json_passes_through(self):
+        from skill.deep_recall import _sanitize_json
+        assert _sanitize_json('{"a": 1}') == '{"a": 1}'
+
+    def test_strips_markdown_json_fence(self):
+        from skill.deep_recall import _sanitize_json
+        raw = '```json\n{"key": "value"}\n```'
+        assert json.loads(_sanitize_json(raw)) == {"key": "value"}
+
+    def test_strips_plain_markdown_fence(self):
+        from skill.deep_recall import _sanitize_json
+        raw = '```\n[1, 2, 3]\n```'
+        assert json.loads(_sanitize_json(raw)) == [1, 2, 3]
+
+    def test_finds_json_after_preamble(self):
+        from skill.deep_recall import _sanitize_json
+        raw = 'Sure, here is the result:\n{"files": []}'
+        assert json.loads(_sanitize_json(raw)) == {"files": []}
+
+    def test_array_json(self):
+        from skill.deep_recall import _sanitize_json
+        assert json.loads(_sanitize_json('[1, 2]')) == [1, 2]
+
+    def test_empty_string(self):
+        from skill.deep_recall import _sanitize_json
+        assert _sanitize_json("") == ""
+
+    def test_whitespace_around_json(self):
+        from skill.deep_recall import _sanitize_json
+        raw = '  \n {"a": 1} \n '
+        assert json.loads(_sanitize_json(raw)) == {"a": 1}
+
+    def test_no_json_returns_original(self):
+        from skill.deep_recall import _sanitize_json
+        raw = "no json here at all"
+        assert _sanitize_json(raw) == raw
+
 
 # ---------------------------------------------------------------------------
 # _worker_call
@@ -153,6 +210,14 @@ class TestWorkerCall:
         with patch("skill.deep_recall._chat", side_effect=Exception("API error")):
             result = _worker_call("query", "file.md", "content", provider)
         assert result["quotes"] == []
+
+    def test_handles_json_in_markdown_fence(self):
+        provider = _mock_provider()
+        wrapped = '```json\n{"quotes": [{"text": "hello", "line": 1}]}\n```'
+        with patch("skill.deep_recall._chat", return_value=wrapped):
+            result = _worker_call("query", "file.md", "content", provider)
+        assert len(result["quotes"]) == 1
+        assert result["quotes"][0]["text"] == "hello"
 
     def test_anti_hallucination_prompt(self):
         """Verify worker prompt contains exact-quote instructions."""
@@ -274,6 +339,38 @@ class TestRecall:
                    side_effect=RuntimeError("No provider")):
             with pytest.raises(RuntimeError, match="cannot resolve"):
                 recall("query")
+
+    def test_worker_model_no_prefix_doubling(self):
+        """Worker provider model should never have a doubled prefix."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = _make_workspace(tmp)
+            provider = ProviderConfig(
+                provider="anthropic",
+                api_key="sk-test",
+                base_url="https://api.anthropic.com/v1",
+                primary_model="anthropic/claude-sonnet-4",
+            )
+
+            captured_providers = []
+
+            def fake_chat(messages, prov, json_mode=False):
+                captured_providers.append(prov)
+                system = messages[0]["content"]
+                if "memory-file selector" in system.lower():
+                    return json.dumps({"files": ["memory/2026-03-01.md"]})
+                elif "quote extractor" in system.lower():
+                    return json.dumps({"quotes": []})
+                return "No memories."
+
+            with patch("skill.deep_recall.resolve_provider", return_value=provider), \
+                 patch("skill.deep_recall._chat", side_effect=fake_chat):
+                recall("query", workspace=ws)
+
+            worker_provs = [p for p in captured_providers
+                            if "haiku" in p.primary_model]
+            for wp in worker_provs:
+                assert not wp.primary_model.startswith("anthropic/anthropic/"), \
+                    f"Doubled prefix in worker model: {wp.primary_model}"
 
 
 # ---------------------------------------------------------------------------

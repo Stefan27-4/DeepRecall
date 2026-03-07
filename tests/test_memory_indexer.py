@@ -68,6 +68,26 @@ class TestExtractTopics:
         info = extract_topics(content, "notes.txt")
         assert "Alice" in info["people"]
 
+    def test_extracts_hyphenated_names(self):
+        content = "Discussed with **Jean-Luc** about the project."
+        info = extract_topics(content, "test.md")
+        assert "Jean-Luc" in info["people"]
+
+    def test_extracts_apostrophe_names(self):
+        content = "Met **O'Connor** at the office."
+        info = extract_topics(content, "test.md")
+        assert "O'Connor" in info["people"]
+
+    def test_extracts_hyphenated_full_names(self):
+        content = "**Jean-Luc Picard** gave the order."
+        info = extract_topics(content, "test.md")
+        assert "Jean-Luc Picard" in info["people"]
+
+    def test_extracts_apostrophe_surname(self):
+        content = "**Mary O'Brien** filed the report."
+        info = extract_topics(content, "test.md")
+        assert "Mary O'Brien" in info["people"]
+
 
 # ---------------------------------------------------------------------------
 # build_memory_index

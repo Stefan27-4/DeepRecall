@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -56,6 +57,42 @@ logger = logging.getLogger("deep_recall")
 # Maximum number of manager→workers→synthesis rounds.
 # Kept at 1 to prevent runaway recursion; raise only with explicit intent.
 _MAX_TOOL_ROUNDS: int = 1
+
+
+# ---------------------------------------------------------------------------
+# JSON sanitizer — defensive handling of LLM responses
+# ---------------------------------------------------------------------------
+
+_MD_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)\n?\s*```", re.DOTALL)
+
+
+def _sanitize_json(raw: str) -> str:
+    """Extract clean JSON from an LLM response that may be wrapped.
+
+    Some models (including Claude in certain prompt contexts) wrap JSON
+    in markdown code fences (````` ```json ... ``` `````).  This helper
+    strips those fences and, as a last resort, locates the first ``{``
+    or ``[`` to find the JSON payload.
+    """
+    text = raw.strip()
+    if not text:
+        return text
+
+    # Fast path: already starts with { or [
+    if text[0] in "{[":
+        return text
+
+    # Strip markdown code fences
+    m = _MD_JSON_FENCE_RE.search(text)
+    if m:
+        return m.group(1).strip()
+
+    # Last resort: find the first { or [
+    for i, ch in enumerate(text):
+        if ch in "{[":
+            return text[i:]
+
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +242,7 @@ def _manager_call(
     raw = _chat(messages, provider, json_mode=True)
 
     try:
-        data = json.loads(raw)
+        data = json.loads(_sanitize_json(raw))
         files = data.get("files", [])
         if not isinstance(files, list):
             return []
@@ -230,7 +267,7 @@ def _worker_call(
     ]
     try:
         raw = _chat(messages, provider, json_mode=True)
-        data = json.loads(raw)
+        data = json.loads(_sanitize_json(raw))
         quotes = data.get("quotes", [])
         if not isinstance(quotes, list):
             quotes = []
@@ -357,11 +394,12 @@ def recall(
 
     # Build a worker provider config using the cheaper sub-agent model
     pair = get_model_pair(provider.primary_model)
+    sub_agent_bare = pair["sub_agent"].split("/")[-1]
     worker_provider = ProviderConfig(
         provider=provider.provider,
         api_key=provider.api_key,
         base_url=provider.base_url,
-        primary_model=f"{provider.provider}/{pair['sub_agent']}",
+        primary_model=f"{provider.provider}/{sub_agent_bare}",
         default_headers=provider.default_headers,
     )
 

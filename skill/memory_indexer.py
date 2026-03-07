@@ -32,9 +32,11 @@ def extract_topics(content: str, filename: str) -> dict:
     }
 
     # Common people patterns: **Name** or "Name" in context
-    # Only match short standalone names, not multi-word technical terms
+    # Handles hyphens (Jean-Luc), apostrophes (O'Connor), multi-part names
+    _NAME_WORD = r"[A-Z][a-z]{0,12}(?:'[A-Z][a-z]{1,12})?"
+    _NAME_PART = _NAME_WORD + r"(?:-" + _NAME_WORD + r")*"
     people_pattern = re.compile(
-        r'\*\*([A-Z][a-z]{1,12}(?:\s[A-Z][a-z]{1,12})?)\*\*'
+        r"\*\*(" + _NAME_PART + r"(?:\s" + _NAME_PART + r")?)\*\*"
     )
 
     # Project patterns: things that look like project names
