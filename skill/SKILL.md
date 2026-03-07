@@ -43,10 +43,11 @@ cd DeepRecall && pip install .
 
 ### Dependencies
 
-- **httpx** (preferred) or **requests** — HTTP client for LLM calls
-- **PyYAML** — config parsing
 - **Python ≥ 3.10**
 - An LLM provider configured in OpenClaw
+
+> **Zero required dependencies** — uses only the Python standard library
+> (`urllib.request`, `json`, `re`, `concurrent.futures`).
 
 > **v2 breaking change:** Deno and fast-rlm are no longer required.
 > The entire RLM loop runs in-process as pure Python.

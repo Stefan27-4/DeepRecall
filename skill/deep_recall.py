@@ -32,7 +32,7 @@ import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Package imports — prefer relative (package), fall back for direct script use
@@ -41,7 +41,7 @@ try:
     from .provider_bridge import resolve_provider, ProviderConfig, call_llm
     from .model_pairs import get_model_pair
     from .memory_scanner import MemoryScanner
-    from .memory_indexer import build_memory_index, update_memory_index
+    from .memory_indexer import build_memory_index
 except ImportError:
     # Fallback: running as a standalone script (python skill/deep_recall.py)
     _SKILL_DIR = Path(__file__).parent
@@ -50,7 +50,7 @@ except ImportError:
     from provider_bridge import resolve_provider, ProviderConfig, call_llm  # type: ignore[no-redef]
     from model_pairs import get_model_pair  # type: ignore[no-redef]
     from memory_scanner import MemoryScanner  # type: ignore[no-redef]
-    from memory_indexer import build_memory_index, update_memory_index  # type: ignore[no-redef]
+    from memory_indexer import build_memory_index  # type: ignore[no-redef]
 
 logger = logging.getLogger("deep_recall")
 
