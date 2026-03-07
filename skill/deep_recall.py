@@ -57,47 +57,6 @@ logger = logging.getLogger("deep_recall")
 # Kept at 1 to prevent runaway recursion; raise only with explicit intent.
 _MAX_TOOL_ROUNDS: int = 1
 
-# ---------------------------------------------------------------------------
-# HTTP client — prefer httpx, fall back to requests
-# ---------------------------------------------------------------------------
-
-_HTTP_CLIENT: Optional[str] = None
-
-
-def _get_http_client() -> str:
-    """Return 'httpx' or 'requests' depending on what is installed."""
-    global _HTTP_CLIENT
-    if _HTTP_CLIENT is not None:
-        return _HTTP_CLIENT
-    try:
-        import httpx  # noqa: F401
-        _HTTP_CLIENT = "httpx"
-    except ImportError:
-        try:
-            import requests  # noqa: F401
-            _HTTP_CLIENT = "requests"
-        except ImportError:
-            raise ImportError(
-                "DeepRecall requires either 'httpx' or 'requests'. "
-                "Install one with: pip install httpx"
-            )
-    return _HTTP_CLIENT
-
-
-def _http_post(url: str, *, headers: dict, json_body: dict, timeout: float = 120) -> dict:
-    """POST JSON and return the parsed response body."""
-    client = _get_http_client()
-    if client == "httpx":
-        import httpx
-        resp = httpx.post(url, headers=headers, json=json_body, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()
-    else:
-        import requests
-        resp = requests.post(url, headers=headers, json=json_body, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()
-
 
 # ---------------------------------------------------------------------------
 # Anti-hallucination system prompts
@@ -127,7 +86,7 @@ _SYNTHESIS_SYSTEM = (
     "4. Prefer detailed answers from LONG_TERM.md over summaries from MEMORY.md. "
     "Include the full story - decisions, reasoning, timestamps. "
     "Don't give the Wikipedia summary, give the diary entry.\n"
-    "4. If the quotes do not answer the question, say so honestly.\n"
+    "5. If the quotes do not answer the question, say so honestly.\n"
 )
 
 _MANAGER_SYSTEM = (
@@ -393,11 +352,20 @@ def recall(
     if not scanner.files:
         return "[DeepRecall] No memory files found in workspace."
 
-    # 3. Build memory index
-    memory_index = build_memory_index(workspace=ws)
+    # 3. Build memory index from the scanner's scoped file list
+    memory_index = build_memory_index(files=scanner.files)
+
+    # Build a worker provider config using the cheaper sub-agent model
+    pair = get_model_pair(provider.primary_model)
+    worker_provider = ProviderConfig(
+        provider=provider.provider,
+        api_key=provider.api_key,
+        base_url=provider.base_url,
+        primary_model=f"{provider.provider}/{pair['sub_agent']}",
+        default_headers=provider.default_headers,
+    )
 
     if verbose:
-        pair = get_model_pair(provider.primary_model)
         print(f"🧠 DeepRecall running (pure-Python RLM)...")
         print(f"   Provider : {provider.provider}")
         print(f"   Model    : {pair['primary']} (workers: {pair['sub_agent']})")
@@ -425,7 +393,7 @@ def recall(
             content = _read_file(fpath, ws)
             if content is None:
                 continue
-            fut = pool.submit(_worker_call, query, fpath, content, provider)
+            fut = pool.submit(_worker_call, query, fpath, content, worker_provider)
             futures[fut] = fpath
 
         for fut in as_completed(futures):

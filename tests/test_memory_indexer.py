@@ -10,6 +10,7 @@ from skill.memory_indexer import (
     extract_topics,
     update_memory_index,
 )
+from skill.memory_scanner import MemoryScanner
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +170,88 @@ class TestBuildMemoryIndex:
             assert "LONG_TERM.md" in index
             assert "random_notes.md" in index
             assert "Long-Term Memory Files" in index
+
+
+class TestBuildMemoryIndexFromFiles:
+    """Test build_memory_index when called with scanner file list."""
+
+    def _make_workspace(self, tmp: str) -> Path:
+        ws = Path(tmp)
+        (ws / "SOUL.md").write_text("# Soul\nI am an agent. **Alice** is my human.\n")
+        (ws / "IDENTITY.md").write_text("# Identity\nCore facts here.\n")
+        (ws / "MEMORY.md").write_text(
+            "# Memory Index\n"
+            "## Current Projects\n"
+            "**budget** discussion with **Alice**\n"
+            "Working on deeprecall\n"
+        )
+        mem = ws / "memory"
+        mem.mkdir()
+        (mem / "LONG_TERM.md").write_text(
+            "# Long term\n## Chess Game\nPlayed on Feb 27\n"
+        )
+        (mem / "2026-03-01.md").write_text(
+            "# March 1\n## Morning\n"
+            "Met with **Bob** about **timeline**.\n"
+            "✅ Finished phase 1\n"
+        )
+        return ws
+
+    def test_index_includes_soul_files(self):
+        """When scope=all, soul files appear in the index."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = self._make_workspace(tmp)
+            scanner = MemoryScanner(workspace=ws)
+            scanner.scan(scope="all")
+            index = build_memory_index(files=scanner.files)
+            assert "# Memory Index" in index
+            assert "SOUL.md" in index
+            assert "IDENTITY.md" in index
+
+    def test_identity_scope_no_daily_logs(self):
+        """scope=identity should not include daily logs in the index."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = self._make_workspace(tmp)
+            scanner = MemoryScanner(workspace=ws)
+            scanner.scan(scope="identity")
+            index = build_memory_index(files=scanner.files)
+            assert "SOUL.md" in index
+            assert "MEMORY.md" in index
+            assert "2026-03-01" not in index
+
+    def test_project_scope_includes_workspace_files(self):
+        """scope=project should include .py files in the index."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = self._make_workspace(tmp)
+            (ws / "app.py").write_text("# App\ndef main(): pass\n")
+            scanner = MemoryScanner(workspace=ws)
+            scanner.scan(scope="project")
+            index = build_memory_index(files=scanner.files)
+            assert "app.py" in index
+            assert "Workspace Files" in index
+
+    def test_memory_scope_has_timeline(self):
+        """scope=memory should include timeline with daily logs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = self._make_workspace(tmp)
+            scanner = MemoryScanner(workspace=ws)
+            scanner.scan(scope="memory")
+            index = build_memory_index(files=scanner.files)
+            assert "## Timeline" in index
+            assert "2026-03-01" in index
+            assert "LONG_TERM.md" in index
+
+    def test_people_extracted_from_scanner_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = self._make_workspace(tmp)
+            scanner = MemoryScanner(workspace=ws)
+            scanner.scan(scope="all")
+            index = build_memory_index(files=scanner.files)
+            assert "Alice" in index
+
+    def test_empty_file_list(self):
+        index = build_memory_index(files=[])
+        assert "# Memory Index" in index
 
 
 # ---------------------------------------------------------------------------

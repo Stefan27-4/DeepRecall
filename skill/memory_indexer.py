@@ -92,12 +92,205 @@ def extract_topics(content: str, filename: str) -> dict:
     return info
 
 
-def build_memory_index(workspace: Optional[Path] = None) -> str:
+def _format_index(
+    daily_logs: dict,
+    other_memory: dict,
+    memory_topics: Optional[dict],
+    topic_map: dict,
+    people_map: dict,
+    project_map: dict,
+    *,
+    soul_mind_files: Optional[dict] = None,
+    workspace_files: Optional[dict] = None,
+) -> str:
+    """Render the memory index as a markdown string.
+
+    Shared by both the filesystem-scanning and the file-list-based paths.
     """
-    Build MEMORY_INDEX.md content from all memory files.
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    lines = [
+        "# Memory Index",
+        f"Auto-generated: {now}",
+        "",
+        "---",
+        "",
+    ]
+
+    # Soul / Mind files (only present when built from scanner file list)
+    if soul_mind_files:
+        lines.append("## Identity & Mind Files")
+        for path, info in sorted(soul_mind_files.items()):
+            t = info["topics"]
+            hdrs = ", ".join(t["headers"][:8]) if t["headers"] else "no headers"
+            lines.append(f"- `{info['path']}` ({info['size']:,} chars)")
+            lines.append(f"  Sections: {hdrs}")
+        lines.append("")
+
+    # Timeline
+    lines.append("## Timeline")
+    for date_str in sorted(daily_logs.keys(), reverse=True):
+        log = daily_logs[date_str]
+        t = log["topics"]
+        summary = ", ".join(t["headers"][:4]) if t["headers"] else "No headers"
+        lines.append(f"- **{date_str}** → `{log['path']}` ({log['size']:,} chars)")
+        lines.append(f"  Topics: {summary}")
+    lines.append("")
+
+    # Long-term memory files (non-daily)
+    if other_memory:
+        lines.append("## Long-Term Memory Files")
+        for name, info in sorted(other_memory.items()):
+            t = info["topics"]
+            hdrs = ", ".join(t["headers"][:8]) if t["headers"] else "no headers"
+            lines.append(f"- `{info['path']}` ({info['size']:,} chars)")
+            lines.append(f"  Sections: {hdrs}")
+        lines.append("")
+
+    # Workspace files (only present when built from scanner file list)
+    if workspace_files:
+        lines.append("## Workspace Files")
+        for path, info in sorted(workspace_files.items()):
+            t = info["topics"]
+            hdrs = ", ".join(t["headers"][:4]) if t["headers"] else "no headers"
+            lines.append(f"- `{info['path']}` ({info['size']:,} chars)")
+            lines.append(f"  Sections: {hdrs}")
+        lines.append("")
+
+    # People
+    if people_map:
+        lines.append("## People")
+        for person in sorted(people_map.keys()):
+            file_list = sorted(people_map[person])
+            files_str = ", ".join(f"`{f}`" for f in file_list)
+            lines.append(f"- **{person}** → {files_str}")
+        lines.append("")
+
+    # Projects
+    if project_map:
+        lines.append("## Projects")
+        for proj in sorted(project_map.keys()):
+            file_list = sorted(project_map[proj])
+            files_str = ", ".join(f"`{f}`" for f in file_list)
+            lines.append(f"- **{proj}** → {files_str}")
+        lines.append("")
+
+    # Topic map (top 30 most referenced topics)
+    if topic_map:
+        lines.append("## Topics")
+        sorted_topics = sorted(
+            topic_map.items(),
+            key=lambda x: len(x[1]),
+            reverse=True
+        )[:30]
+        for topic, file_list in sorted_topics:
+            files_str = ", ".join(f"`{f}`" for f in sorted(file_list))
+            lines.append(f"- {topic} → {files_str}")
+        lines.append("")
+
+    # Key events from daily logs (most recent first)
+    lines.append("## Key Events")
+    for date_str in sorted(daily_logs.keys(), reverse=True):
+        log = daily_logs[date_str]
+        summaries = log["topics"]["summary_lines"][:5]
+        if summaries:
+            lines.append(f"### {date_str}")
+            for s in summaries:
+                lines.append(f"- {s}")
+            lines.append("")
+
+    # MEMORY.md summary
+    if memory_topics and memory_topics["headers"]:
+        lines.append("## MEMORY.md Sections")
+        for h in memory_topics["headers"]:
+            lines.append(f"- {h}")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("*This index is auto-generated. RLM reads this first to navigate memory efficiently.*")
+
+    return "\n".join(lines)
+
+
+def _build_index_from_files(files: list) -> str:
+    """Build a memory index from pre-scanned MemoryFile objects.
+
+    Categorises each file by its ``category`` attribute and produces
+    the same structured markdown as the filesystem-scanning path.
+    """
+    daily_logs: dict[str, dict] = {}
+    other_memory: dict[str, dict] = {}
+    memory_topics: Optional[dict] = None
+    soul_mind_files: dict[str, dict] = {}
+    workspace_files: dict[str, dict] = {}
+
+    for mf in files:
+        topics = extract_topics(mf.content, Path(mf.rel_path).name)
+        info = {
+            "path": mf.rel_path,
+            "size": mf.size,
+            "topics": topics,
+        }
+
+        if mf.category == "mind" and Path(mf.rel_path).name == "MEMORY.md":
+            memory_topics = topics
+
+        date_match = re.match(r"(\d{4}-\d{2}-\d{2})", Path(mf.rel_path).name)
+
+        if mf.category == "daily-log" and date_match:
+            daily_logs[date_match.group(1)] = info
+        elif mf.category in ("long-term", "daily-log"):
+            other_memory[Path(mf.rel_path).name] = info
+        elif mf.category in ("soul", "mind"):
+            soul_mind_files[mf.rel_path] = info
+        elif mf.category == "workspace":
+            workspace_files[mf.rel_path] = info
+
+    # Build topic/people/project maps from ALL files
+    topic_map: dict[str, set] = defaultdict(set)
+    people_map: dict[str, set] = defaultdict(set)
+    project_map: dict[str, set] = defaultdict(set)
+
+    all_entries = (
+        [(info["path"], info["topics"]) for info in daily_logs.values()]
+        + [(info["path"], info["topics"]) for info in other_memory.values()]
+        + [(info["path"], info["topics"]) for info in soul_mind_files.values()]
+        + [(info["path"], info["topics"]) for info in workspace_files.values()]
+    )
+    if memory_topics:
+        all_entries.append(("MEMORY.md", memory_topics))
+
+    for path, t in all_entries:
+        for kw in t["keywords"]:
+            topic_map[kw].add(path)
+        for p in t["people"]:
+            people_map[p].add(path)
+        for proj in t["projects"]:
+            project_map[proj].add(path)
+
+    return _format_index(
+        daily_logs, other_memory, memory_topics,
+        topic_map, people_map, project_map,
+        soul_mind_files=soul_mind_files,
+        workspace_files=workspace_files,
+    )
+
+
+def build_memory_index(workspace: Optional[Path] = None,
+                       files: Optional[list] = None) -> str:
+    """
+    Build MEMORY_INDEX.md content from memory files.
+
+    When *files* is provided (a list of ``MemoryFile`` objects from
+    ``MemoryScanner``), the index is built from those files — honouring
+    the scanner's scope filtering.  Otherwise falls back to scanning
+    ``memory/`` and ``MEMORY.md`` directly from *workspace*.
 
     Returns the index as a markdown string.
     """
+    if files is not None:
+        return _build_index_from_files(files)
+
     workspace = workspace or Path(
         os.environ.get("OPENCLAW_WORKSPACE",
                        os.path.expanduser("~/.openclaw/workspace"))
@@ -174,92 +367,10 @@ def build_memory_index(workspace: Optional[Path] = None) -> str:
         for proj in t["projects"]:
             project_map[proj].add(info["path"])
 
-    # Generate the index
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
-    lines = [
-        "# Memory Index",
-        f"Auto-generated: {now}",
-        "",
-        "---",
-        "",
-    ]
-
-    # Timeline
-    lines.append("## Timeline")
-    for date_str in sorted(daily_logs.keys(), reverse=True):
-        log = daily_logs[date_str]
-        t = log["topics"]
-        # Get top 3 headers as summary
-        summary = ", ".join(t["headers"][:4]) if t["headers"] else "No headers"
-        lines.append(f"- **{date_str}** → `{log['path']}` ({log['size']:,} chars)")
-        lines.append(f"  Topics: {summary}")
-    lines.append("")
-
-    # Long-term memory files (non-daily)
-    if other_memory:
-        lines.append("## Long-Term Memory Files")
-        for name, info in sorted(other_memory.items()):
-            t = info["topics"]
-            hdrs = ", ".join(t["headers"][:8]) if t["headers"] else "no headers"
-            lines.append(f"- `{info['path']}` ({info['size']:,} chars)")
-            lines.append(f"  Sections: {hdrs}")
-        lines.append("")
-
-    # People
-    if people_map:
-        lines.append("## People")
-        for person in sorted(people_map.keys()):
-            files = sorted(people_map[person])
-            files_str = ", ".join(f"`{f}`" for f in files)
-            lines.append(f"- **{person}** → {files_str}")
-        lines.append("")
-
-    # Projects
-    if project_map:
-        lines.append("## Projects")
-        for proj in sorted(project_map.keys()):
-            files = sorted(project_map[proj])
-            files_str = ", ".join(f"`{f}`" for f in files)
-            lines.append(f"- **{proj}** → {files_str}")
-        lines.append("")
-
-    # Topic map (top 30 most referenced topics)
-    if topic_map:
-        lines.append("## Topics")
-        # Sort by number of files referencing the topic
-        sorted_topics = sorted(
-            topic_map.items(),
-            key=lambda x: len(x[1]),
-            reverse=True
-        )[:30]
-        for topic, files in sorted_topics:
-            files_str = ", ".join(f"`{f}`" for f in sorted(files))
-            lines.append(f"- {topic} → {files_str}")
-        lines.append("")
-
-    # Key events from daily logs (most recent first)
-    lines.append("## Key Events")
-    for date_str in sorted(daily_logs.keys(), reverse=True):
-        log = daily_logs[date_str]
-        summaries = log["topics"]["summary_lines"][:5]
-        if summaries:
-            lines.append(f"### {date_str}")
-            for s in summaries:
-                lines.append(f"- {s}")
-            lines.append("")
-
-    # Long-term memory summary
-    if memory_topics and memory_topics["headers"]:
-        lines.append("## MEMORY.md Sections")
-        for h in memory_topics["headers"]:
-            lines.append(f"- {h}")
-        lines.append("")
-
-    lines.append("---")
-    lines.append("*This index is auto-generated. RLM reads this first to navigate memory efficiently.*")
-
-    return "\n".join(lines)
+    return _format_index(
+        daily_logs, other_memory, memory_topics,
+        topic_map, people_map, project_map,
+    )
 
 
 def update_memory_index(workspace: Optional[Path] = None) -> Path:

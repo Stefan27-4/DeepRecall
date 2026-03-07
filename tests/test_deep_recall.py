@@ -13,8 +13,6 @@ from skill.deep_recall import (
     _MAX_TOOL_ROUNDS,
     _execute_tool_code,
     _find_workspace,
-    _get_http_client,
-    _http_post,
     _chat,
     _manager_call,
     _read_file,
@@ -414,181 +412,37 @@ class TestErrorHandling:
 
 
 # ---------------------------------------------------------------------------
-# _get_http_client
-# ---------------------------------------------------------------------------
-
-class TestGetHttpClient:
-    def setup_method(self):
-        """Reset the module-level cache before each test."""
-        _dr_module._HTTP_CLIENT = None
-
-    def teardown_method(self):
-        """Restore cache after each test (avoid httpx vs requests surprises)."""
-        _dr_module._HTTP_CLIENT = None
-
-    def test_returns_httpx_when_available(self):
-        result = _get_http_client()
-        # httpx is installed in this environment
-        assert result == "httpx"
-
-    def test_caches_result(self):
-        first = _get_http_client()
-        second = _get_http_client()
-        assert first == second
-
-    def test_returns_cached_value_without_import(self):
-        _dr_module._HTTP_CLIENT = "requests"
-        result = _get_http_client()
-        assert result == "requests"
-
-    def test_falls_back_to_requests_when_httpx_missing(self):
-        import builtins
-        real_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name == "httpx":
-                raise ImportError("no httpx")
-            return real_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=mock_import):
-            _dr_module._HTTP_CLIENT = None
-            result = _get_http_client()
-        assert result == "requests"
-
-    def test_raises_when_both_missing(self):
-        import builtins
-        real_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name in ("httpx", "requests"):
-                raise ImportError(f"no {name}")
-            return real_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=mock_import):
-            _dr_module._HTTP_CLIENT = None
-            with pytest.raises(ImportError, match="httpx"):
-                _get_http_client()
-
-
-# ---------------------------------------------------------------------------
-# _http_post
-# ---------------------------------------------------------------------------
-
-class TestHttpPost:
-    def setup_method(self):
-        _dr_module._HTTP_CLIENT = None
-
-    def teardown_method(self):
-        _dr_module._HTTP_CLIENT = None
-
-    def test_httpx_path(self):
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"choices": []}
-
-        with patch("skill.deep_recall._get_http_client", return_value="httpx"), \
-             patch("httpx.post", return_value=mock_resp) as mock_post:
-            result = _http_post(
-                "https://api.example.com/v1/chat",
-                headers={"Authorization": "Bearer sk-test"},
-                json_body={"model": "gpt-4o", "messages": []},
-            )
-
-        mock_post.assert_called_once()
-        mock_resp.raise_for_status.assert_called_once()
-        assert result == {"choices": []}
-
-    def test_requests_path(self):
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"choices": [{"message": {"content": "hi"}}]}
-
-        import sys
-        mock_requests = MagicMock()
-        mock_requests.post.return_value = mock_resp
-
-        with patch("skill.deep_recall._get_http_client", return_value="requests"), \
-             patch.dict(sys.modules, {"requests": mock_requests}):
-            result = _http_post(
-                "https://api.example.com/v1/chat",
-                headers={"Authorization": "Bearer sk-test"},
-                json_body={"model": "gpt-4o", "messages": []},
-            )
-
-        mock_requests.post.assert_called_once()
-        mock_resp.raise_for_status.assert_called_once()
-        assert result["choices"][0]["message"]["content"] == "hi"
-
-
-# ---------------------------------------------------------------------------
 # _chat
 # ---------------------------------------------------------------------------
 
 class TestChat:
-    def test_strips_provider_prefix_from_model(self):
-        """Model 'openai/gpt-4o' → only 'gpt-4o' sent to API."""
-        provider = ProviderConfig(
-            provider="openai",
-            api_key="sk-test",
-            base_url="https://api.openai.com/v1",
-            primary_model="openai/gpt-4o",
-        )
-        captured_body = {}
+    def test_routes_through_call_llm(self):
+        """_chat delegates to provider_bridge.call_llm."""
+        provider = _mock_provider()
 
-        def fake_post(url, *, headers, json_body, timeout):
-            captured_body.update(json_body)
-            return {"choices": [{"message": {"content": "result"}}]}
-
-        with patch("skill.deep_recall._http_post", side_effect=fake_post):
+        with patch("skill.deep_recall.call_llm", return_value="result") as mock_llm:
             result = _chat([{"role": "user", "content": "hi"}], provider)
 
-        assert captured_body["model"] == "gpt-4o"
+        mock_llm.assert_called_once()
         assert result == "result"
 
-    def test_json_mode_adds_response_format(self):
+    def test_passes_json_mode(self):
         provider = _mock_provider()
-        captured_body = {}
 
-        def fake_post(url, *, headers, json_body, timeout):
-            captured_body.update(json_body)
-            return {"choices": [{"message": {"content": "{}"}}]}
-
-        with patch("skill.deep_recall._http_post", side_effect=fake_post):
+        with patch("skill.deep_recall.call_llm", return_value="{}") as mock_llm:
             _chat([{"role": "user", "content": "q"}], provider, json_mode=True)
 
-        assert "response_format" in captured_body
-        assert captured_body["response_format"] == {"type": "json_object"}
+        _, kwargs = mock_llm.call_args
+        assert kwargs.get("json_mode") is True
 
-    def test_no_json_mode_omits_response_format(self):
-        provider = _mock_provider()
-        captured_body = {}
-
-        def fake_post(url, *, headers, json_body, timeout):
-            captured_body.update(json_body)
-            return {"choices": [{"message": {"content": "ok"}}]}
-
-        with patch("skill.deep_recall._http_post", side_effect=fake_post):
-            _chat([{"role": "user", "content": "q"}], provider, json_mode=False)
-
-        assert "response_format" not in captured_body
-
-    def test_empty_choices_raises(self):
+    def test_passes_timeout(self):
         provider = _mock_provider()
 
-        with patch("skill.deep_recall._http_post", return_value={"choices": []}):
-            with pytest.raises(RuntimeError, match="no choices"):
-                _chat([{"role": "user", "content": "q"}], provider)
-
-    def test_authorization_header_sent(self):
-        provider = _mock_provider()
-        captured_headers = {}
-
-        def fake_post(url, *, headers, json_body, timeout):
-            captured_headers.update(headers)
-            return {"choices": [{"message": {"content": "ok"}}]}
-
-        with patch("skill.deep_recall._http_post", side_effect=fake_post):
+        with patch("skill.deep_recall.call_llm", return_value="ok") as mock_llm:
             _chat([{"role": "user", "content": "q"}], provider)
 
-        assert captured_headers.get("Authorization") == "Bearer sk-test"
+        _, kwargs = mock_llm.call_args
+        assert kwargs.get("timeout") == 120
 
 
 # ---------------------------------------------------------------------------
