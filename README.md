@@ -9,6 +9,7 @@
 DeepRecall is an [OpenClaw](https://github.com/openclaw/openclaw) skill that gives AI agents **infinite memory** using a Recursive Language Model (RLM) loop. Instead of cramming everything into the context window, the agent recursively queries its own memory files through a manager → workers → synthesis pipeline — entirely in Python.
 
 **Architecture:** Anamnesis Architecture
+
 **Principle:** *"The soul stays small, the mind scales forever."*
 
 ## The Problem
