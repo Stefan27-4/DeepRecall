@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/deeprecall-logo.png" alt="DeepRecall Logo" width="400">
+</p>
+
 # DeepRecall — Recursive Memory for AI Agents
 
 > **v1.0.4** — Pure Python RLM. No Deno, no fast-rlm, no external runtimes.
