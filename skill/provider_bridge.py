@@ -257,6 +257,7 @@ def make_request(url: str, headers: dict, body: dict,
 def make_gemini_native_request(config: ProviderConfig, messages: list[dict],
                                temperature: float = 0.7,
                                max_tokens: int = 1024,
+                               json_mode: bool = False,
                                timeout: int = 60) -> dict:
     """
     Call Gemini using its native REST API (not OpenAI-compatible).
@@ -269,6 +270,7 @@ def make_gemini_native_request(config: ProviderConfig, messages: list[dict],
         messages: OpenAI-style messages (role/content dicts).
         temperature: Sampling temperature.
         max_tokens: Maximum output tokens.
+        json_mode: If *True*, request JSON output via responseMimeType.
         timeout: Request timeout in seconds.
 
     Returns:
@@ -294,12 +296,16 @@ def make_gemini_native_request(config: ProviderConfig, messages: list[dict],
             gemini_role = "model" if role == "assistant" else "user"
             contents.append({"role": gemini_role, "parts": [{"text": text}]})
 
+    generation_config: dict = {
+        "temperature": temperature,
+        "maxOutputTokens": max_tokens,
+    }
+    if json_mode:
+        generation_config["responseMimeType"] = "application/json"
+
     body: dict = {
         "contents": contents,
-        "generationConfig": {
-            "temperature": temperature,
-            "maxOutputTokens": max_tokens,
-        },
+        "generationConfig": generation_config,
     }
     if system_instruction:
         body["systemInstruction"] = system_instruction
@@ -312,6 +318,7 @@ def call_llm(messages: list[dict],
              temperature: float = 0.7,
              max_tokens: int = 1024,
              native_gemini: bool = False,
+             json_mode: bool = False,
              timeout: int = 60) -> str:
     """
     High-level function to call an LLM provider.
@@ -327,6 +334,7 @@ def call_llm(messages: list[dict],
         max_tokens: Maximum tokens to generate.
         native_gemini: If *True* and provider is ``google``, use the Gemini
             native REST API instead of the OpenAI-compatible wrapper.
+        json_mode: If *True*, request JSON output from the model.
         timeout: HTTP request timeout in seconds (default 60).
 
     Returns:
@@ -339,7 +347,7 @@ def call_llm(messages: list[dict],
     if config.provider == "google" and native_gemini:
         result = make_gemini_native_request(
             config, messages, temperature=temperature, max_tokens=max_tokens,
-            timeout=timeout,
+            json_mode=json_mode, timeout=timeout,
         )
         candidates = result.get("candidates", [])
         if candidates:
@@ -350,14 +358,17 @@ def call_llm(messages: list[dict],
 
     # Anthropic native path
     if config.provider == "anthropic":
-        return _call_anthropic(config, messages, temperature, max_tokens, timeout)
+        return _call_anthropic(config, messages, temperature, max_tokens,
+                               json_mode=json_mode, timeout=timeout)
 
     # OpenAI-compatible path (default)
-    return _call_openai_compatible(config, messages, temperature, max_tokens, timeout)
+    return _call_openai_compatible(config, messages, temperature, max_tokens,
+                                   json_mode=json_mode, timeout=timeout)
 
 
 def _call_anthropic(config: ProviderConfig, messages: list[dict],
                     temperature: float, max_tokens: int,
+                    json_mode: bool = False,
                     timeout: int = 60) -> str:
     """Call Anthropic Messages API."""
     model_name = config.primary_model
@@ -379,6 +390,14 @@ def _call_anthropic(config: ProviderConfig, messages: list[dict],
         else:
             filtered.append(msg)
 
+    # Anthropic doesn't support response_format; prompt for JSON instead
+    if json_mode:
+        json_instruction = "\n\nRespond with valid JSON only."
+        if system_text:
+            system_text += json_instruction
+        else:
+            system_text = json_instruction.lstrip()
+
     body: dict = {
         "model": model_name,
         "messages": filtered,
@@ -397,6 +416,7 @@ def _call_anthropic(config: ProviderConfig, messages: list[dict],
 
 def _call_openai_compatible(config: ProviderConfig, messages: list[dict],
                             temperature: float, max_tokens: int,
+                            json_mode: bool = False,
                             timeout: int = 60) -> str:
     """Call an OpenAI-compatible chat completions endpoint."""
     model_name = config.primary_model
@@ -409,12 +429,14 @@ def _call_openai_compatible(config: ProviderConfig, messages: list[dict],
         **config.default_headers,
     }
 
-    body = {
+    body: dict = {
         "model": model_name,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
 
     result = make_request(url, headers, body, timeout=timeout)
     choices = result.get("choices", [])

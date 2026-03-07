@@ -37,7 +37,7 @@ from typing import Any, Optional
 # Package imports — prefer relative (package), fall back for direct script use
 # ---------------------------------------------------------------------------
 try:
-    from .provider_bridge import resolve_provider, ProviderConfig
+    from .provider_bridge import resolve_provider, ProviderConfig, call_llm
     from .model_pairs import get_model_pair
     from .memory_scanner import MemoryScanner
     from .memory_indexer import build_memory_index, update_memory_index
@@ -46,7 +46,7 @@ except ImportError:
     _SKILL_DIR = Path(__file__).parent
     if str(_SKILL_DIR) not in sys.path:
         sys.path.insert(0, str(_SKILL_DIR))
-    from provider_bridge import resolve_provider, ProviderConfig  # type: ignore[no-redef]
+    from provider_bridge import resolve_provider, ProviderConfig, call_llm  # type: ignore[no-redef]
     from model_pairs import get_model_pair  # type: ignore[no-redef]
     from memory_scanner import MemoryScanner  # type: ignore[no-redef]
     from memory_indexer import build_memory_index, update_memory_index  # type: ignore[no-redef]
@@ -155,33 +155,10 @@ def _chat(
 ) -> str:
     """Send a chat-completion request and return the assistant text.
 
-    Works with any OpenAI-compatible API endpoint.
+    Routes through provider_bridge.call_llm() to support Anthropic,
+    Gemini Native, and all OpenAI-compatible providers.
     """
-    url = provider.base_url.rstrip("/") + "/chat/completions"
-
-    headers = {
-        "Authorization": f"Bearer {provider.api_key}",
-        "Content-Type": "application/json",
-        **provider.default_headers,
-    }
-
-    model = provider.primary_model
-    if "/" in model:
-        model = model.split("/", 1)[1]
-
-    body: dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-    }
-    if json_mode:
-        body["response_format"] = {"type": "json_object"}
-
-    data = _http_post(url, headers=headers, json_body=body, timeout=120.0)
-
-    choices = data.get("choices", [])
-    if not choices:
-        raise RuntimeError("LLM returned no choices")
-    return choices[0]["message"]["content"]
+    return call_llm(messages, config=provider, json_mode=json_mode, timeout=120)
 
 
 # ---------------------------------------------------------------------------
